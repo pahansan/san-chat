@@ -14,51 +14,34 @@
 
 class server
 {
-private:
-    class client_
+public:
+    class client
     {
         int socket_;
         sockaddr_in meta_;
 
     public:
-        client_(int server_socket)
+        client(int server_socket)
         {
-            std::cout << "aboba\n";
-            socklen_t client_meta_len = sizeof(meta_);
-            if ((socket_ = accept(server_socket, (struct sockaddr *)&meta_, &client_meta_len)) < 0)
+            memset(&meta_, 0, sizeof(meta_));
+            socklen_t length = sizeof(meta_);
+            if ((socket_ = accept(server_socket, (struct sockaddr *)&meta_, &length)) < 0)
                 throw std::runtime_error("Server can't accept client");
         }
 
-        void run()
+        ~client()
         {
-            char buffer[BUFLEN];
-            int message_len = 1;
-            while (message_len > 0)
-            {
-                memset(buffer, '\0', BUFLEN);
-                message_len = recv(socket_, buffer, BUFLEN, 0);
-
-                std::cout << std::format("[{}:{}]: ", get_ip(), get_port());
-                if (message_len == 0)
-                    std::cout << std::format("Client disconnected\n\n");
-                else
-                    std::cout << std::format("{}\n\n", buffer);
-            }
+            if (socket_ != -1)
+                close(socket_);
         }
 
-        ~client_()
-        {
-            std::cout << "jops\n";
-            close(socket_);
-        }
-
-        client_(client_ &&other) noexcept
+        client(client &&other) noexcept
             : socket_(other.socket_), meta_(other.meta_)
         {
             other.socket_ = -1;
         }
 
-        client_ &operator=(client_ &&other) noexcept
+        client &operator=(client &&other) noexcept
         {
             if (this != &other)
             {
@@ -72,8 +55,8 @@ private:
             return *this;
         }
 
-        client_(const client_ &) = delete;
-        client_ &operator=(const client_ &) = delete;
+        client(const client &) = delete;
+        client &operator=(const client &) = delete;
 
         int get_port()
         {
@@ -85,15 +68,21 @@ private:
             const char *char_addr = inet_ntoa(meta_.sin_addr);
             return std::string(char_addr);
         }
+
+        int get_socket()
+        {
+            return socket_;
+        }
+
+        static std::vector<int> state;
     };
 
-public:
     server(sa_family_t sin_family_ = AF_INET, in_addr_t address_ = INADDR_ANY, in_port_t port_ = 0, size_t queue_len = 10)
     {
         if ((socket_ = socket(sin_family_, SOCK_STREAM, 0)) < 0)
             throw std::runtime_error("Server can't get socket");
 
-        bzero(&meta_, sizeof(meta_));
+        memset(&meta_, 0, sizeof(meta_));
 
         meta_.sin_family = sin_family_;
         meta_.sin_addr.s_addr = address_;
@@ -115,11 +104,6 @@ public:
         close(socket_);
     }
 
-    void thread_func(client_ client)
-    {
-        client.run();
-    }
-
     int get_port()
     {
         return ntohs(meta_.sin_port);
@@ -136,18 +120,35 @@ public:
         return socket_;
     }
 
-    void accept_client()
+    client accept_client()
     {
-        client_ client(socket_);
-        threads.push_back(std::thread(&server::thread_func, this, std::move(client)));
+        return client(socket_);
     }
 
 private:
     int socket_;
     struct sockaddr_in meta_;
-    std::vector<std::thread> threads;
-    std::vector<client_> clients_;
 };
+
+bool status = true;
+
+void thread_func(server::client &&working)
+{
+    char buffer[BUFLEN];
+    int message_len = 1;
+    while (message_len > 0)
+    {
+        memset(buffer, '\0', BUFLEN);
+        message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
+
+        std::cout << std::format("[{}:{}]: ", working.get_ip(), working.get_port());
+        if (message_len == 0)
+            std::cout << std::format("Client disconnected\n\n");
+        else
+            std::cout << std::format("{}\n\n", buffer);
+    }
+    status = false;
+}
 
 int main()
 {
@@ -159,7 +160,7 @@ int main()
 
         for (;;)
         {
-            tcp.accept_client();
+            std::thread(thread_func, tcp.accept_client()).detach();
         }
     }
     catch (const std::exception &e)

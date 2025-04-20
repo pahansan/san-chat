@@ -1,8 +1,9 @@
-#include <sqlite3.h>
-#include <iostream>
+#include "db.hpp"
 
 int init_database()
 {
+    std::lock_guard<std::mutex> lock(db_mutex);
+
     sqlite3 *db;
     int rc = sqlite3_open("chat.db", &db);
 
@@ -25,6 +26,7 @@ int init_database()
     {
         std::cerr << "Can't create table users: " << err_msg << '\n';
         sqlite3_free(err_msg);
+        sqlite3_close(db);
         return 1;
     }
 
@@ -46,6 +48,7 @@ int init_database()
     {
         std::cerr << "Can't create table messages: " << err_msg << '\n';
         sqlite3_free(err_msg);
+        sqlite3_close(db);
         return 1;
     }
 
@@ -55,7 +58,211 @@ int init_database()
     return 0;
 }
 
+bool user_exists(const std::string &login)
+{
+    std::lock_guard<std::mutex> lock(db_mutex);
+
+    sqlite3 *db;
+    int rc = sqlite3_open("chat.db", &db);
+
+    if (rc)
+    {
+        std::cerr << "Can't open database: " << sqlite3_errmsg(db) << '\n';
+        return false;
+    }
+
+    const char *sql = "SELECT COUNT(*) FROM users WHERE login = ?;";
+    sqlite3_stmt *stmt;
+
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK)
+    {
+        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << '\n';
+        sqlite3_close(db);
+        return false;
+    }
+
+    sqlite3_bind_text(stmt, 1, login.c_str(), -1, SQLITE_STATIC);
+
+    rc = sqlite3_step(stmt);
+    bool exists = false;
+    if (rc == SQLITE_ROW)
+    {
+        exists = sqlite3_column_int(stmt, 0) > 0;
+    }
+    else
+    {
+        std::cerr << "Failed to execute query: " << sqlite3_errmsg(db) << '\n';
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    return exists;
+}
+
+int add_user(const std::string &login, const std::string &password)
+{
+    std::lock_guard<std::mutex> lock(db_mutex);
+
+    sqlite3 *db;
+    int rc = sqlite3_open("chat.db", &db);
+
+    if (rc)
+    {
+        std::cerr << "Can't open database: " << sqlite3_errmsg(db) << '\n';
+        return 1;
+    }
+
+    const char *sql = "INSERT INTO users (login, password) VALUES (?, ?);";
+    sqlite3_stmt *stmt;
+
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK)
+    {
+        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << '\n';
+        sqlite3_close(db);
+        return 1;
+    }
+
+    sqlite3_bind_text(stmt, 1, login.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, password.c_str(), -1, SQLITE_STATIC);
+
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE)
+    {
+        std::cerr << "Failed to insert user: " << sqlite3_errmsg(db) << '\n';
+        sqlite3_finalize(stmt);
+        sqlite3_close(db);
+        return 1;
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    return 0;
+}
+
+int get_user_id(const std::string &login)
+{
+    std::lock_guard<std::mutex> lock(db_mutex);
+
+    sqlite3 *db;
+    int rc = sqlite3_open("chat.db", &db);
+
+    if (rc)
+    {
+        std::cerr << "Can't open database: " << sqlite3_errmsg(db) << '\n';
+        return -1;
+    }
+
+    const char *sql = "SELECT id FROM users WHERE login = ?;";
+    sqlite3_stmt *stmt;
+
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+
+    if (rc != SQLITE_OK)
+    {
+        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << '\n';
+        sqlite3_close(db);
+        return -1;
+    }
+
+    sqlite3_bind_text(stmt, 1, login.c_str(), -1, SQLITE_STATIC);
+
+    rc = sqlite3_step(stmt);
+    int user_id = -1;
+
+    if (rc == SQLITE_ROW)
+    {
+        user_id = sqlite3_column_int(stmt, 0);
+    }
+    else if (rc == SQLITE_DONE)
+    {
+        std::cerr << "User \"" << login << "\" doesn't exists\n";
+    }
+    else
+    {
+        std::cerr << "Failed to execute query: " << sqlite3_errmsg(db) << '\n';
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    return user_id;
+}
+
+int add_message(const std::string &sender_login, const std::string &reciever_login, const std::string &message)
+{
+    int sender_id = get_user_id(sender_login);
+    int reciever_id = get_user_id(reciever_login);
+
+    if (sender_id == -1 || reciever_id == -1)
+    {
+        return 1;
+    }
+
+    std::lock_guard<std::mutex> lock(db_mutex);
+
+    sqlite3 *db;
+    int rc = sqlite3_open("chat.db", &db);
+
+    if (rc)
+    {
+        std::cerr << "Can't open database: " << sqlite3_errmsg(db) << '\n';
+        return 1;
+    }
+
+    const char *sql = "INSERT INTO messages (sender_id, reciever_id, text) VALUES (?, ?, ?);";
+    sqlite3_stmt *stmt;
+
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK)
+    {
+        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << '\n';
+        sqlite3_close(db);
+        return 1;
+    }
+
+    sqlite3_bind_int(stmt, 1, sender_id);
+    sqlite3_bind_int(stmt, 2, reciever_id);
+    sqlite3_bind_text(stmt, 3, message.c_str(), -1, SQLITE_STATIC);
+
+    rc = sqlite3_step(stmt);
+
+    if (rc != SQLITE_DONE)
+    {
+        std::cerr << "Failed to insert message: " << sqlite3_errmsg(db) << '\n';
+        sqlite3_finalize(stmt);
+        sqlite3_close(db);
+        return 1;
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    return 0;
+}
+
 int main()
 {
-    return init_database();
+    init_database();
+
+    add_user("Aboba1", "1");
+    add_user("Aboba2", "2");
+    add_user("Aboba3", "3");
+
+    if (user_exists("Aboba1"))
+        std::cout << "Aboba1\n";
+    if (user_exists("Aboba2"))
+        std::cout << "Aboba2\n";
+    if (user_exists("Aboba3"))
+        std::cout << "Aboba3\n";
+    if (user_exists("Aboba4"))
+        std::cout << "Aboba4\n";
+
+    std::cout << get_user_id("Aboba1") << '\n';
+    std::cout << get_user_id("Aboba2") << '\n';
+    std::cout << get_user_id("Aboba3") << '\n';
+    std::cout << get_user_id("Aboba4") << '\n';
 }

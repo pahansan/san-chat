@@ -1,22 +1,19 @@
-#include <string>
-#include <netinet/in.h>
-#include <iostream>
-#include <cstring>
-#include <stdexcept>
 #include <arpa/inet.h>
-#include <unistd.h>
-#include <vector>
-#include <thread>
+#include <cstring>
 #include <format>
-#include <algorithm>
+#include <iostream>
+#include <stdexcept>
+#include <thread>
+#include <vector>
+// #include <netinet/in.h>
+
+#include "db.hpp"
 
 #define BUFLEN 1024
 
-class server
-{
+class server {
 public:
-    class client
-    {
+    class client {
         int socket_;
         sockaddr_in meta_;
 
@@ -25,7 +22,7 @@ public:
         {
             memset(&meta_, 0, sizeof(meta_));
             socklen_t length = sizeof(meta_);
-            if ((socket_ = accept(server_socket, (struct sockaddr *)&meta_, &length)) < 0)
+            if ((socket_ = accept(server_socket, (struct sockaddr*)&meta_, &length)) < 0)
                 throw std::runtime_error("Server can't accept client");
         }
 
@@ -35,16 +32,14 @@ public:
                 close(socket_);
         }
 
-        client(client &&other) noexcept
-            : socket_(other.socket_), meta_(other.meta_)
+        client(client&& other) noexcept : socket_(other.socket_), meta_(other.meta_)
         {
             other.socket_ = -1;
         }
 
-        client &operator=(client &&other) noexcept
+        client& operator=(client&& other) noexcept
         {
-            if (this != &other)
-            {
+            if (this != &other) {
                 close(socket_);
 
                 socket_ = other.socket_;
@@ -55,8 +50,8 @@ public:
             return *this;
         }
 
-        client(const client &) = delete;
-        client &operator=(const client &) = delete;
+        client(const client&) = delete;
+        client& operator=(const client&) = delete;
 
         int get_port()
         {
@@ -65,7 +60,7 @@ public:
 
         std::string get_ip()
         {
-            const char *char_addr = inet_ntoa(meta_.sin_addr);
+            const char* char_addr = inet_ntoa(meta_.sin_addr);
             return std::string(char_addr);
         }
 
@@ -87,12 +82,12 @@ public:
         meta_.sin_family = sin_family_;
         meta_.sin_addr.s_addr = address_;
         meta_.sin_port = htons(port_);
-        if (bind(socket_, (struct sockaddr *)&meta_, sizeof(meta_)) < 0)
+        if (bind(socket_, (struct sockaddr*)&meta_, sizeof(meta_)) < 0)
             throw std::runtime_error("Server can't bind socket");
 
         socklen_t namelen = sizeof(meta_);
 
-        if (getsockname(socket_, (struct sockaddr *)&meta_, &namelen) < 0)
+        if (getsockname(socket_, (struct sockaddr*)&meta_, &namelen) < 0)
             throw std::runtime_error("Server can't get socket name");
 
         if (listen(socket_, queue_len) < 0)
@@ -111,7 +106,7 @@ public:
 
     std::string get_ip()
     {
-        const char *char_addr = inet_ntoa(meta_.sin_addr);
+        const char* char_addr = inet_ntoa(meta_.sin_addr);
         return std::string(char_addr);
     }
 
@@ -130,14 +125,11 @@ private:
     struct sockaddr_in meta_;
 };
 
-bool status = true;
-     
-void thread_func(server::client &&working)
+void thread_func(server::client&& working)
 {
     char buffer[BUFLEN];
     int message_len = 1;
-    while (message_len > 0)
-    {
+    do {
         memset(buffer, '\0', BUFLEN);
         message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
 
@@ -146,25 +138,23 @@ void thread_func(server::client &&working)
             std::cout << std::format("Client disconnected\n\n");
         else
             std::cout << std::format("{}\n\n", buffer);
-    }
-    status = false;
+    } while (message_len > 0);
 }
 
 int main()
 {
-    try
-    {
+    try {
+        if (init_database())
+            return 1;
+
         server tcp(AF_INET, INADDR_ANY, 0, 10);
 
         std::cout << std::format("Server up: [{}:{}]\n\n", tcp.get_ip(), tcp.get_port());
 
-        for (;;)
-        {
+        for (;;) {
             std::thread(thread_func, tcp.accept_client()).detach();
         }
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
     }
 }

@@ -21,7 +21,7 @@ typedef struct message
 using messages_list = std::vector<message>;
 using users_map = std::unordered_map<std::string, int>;
 
-std::mutex db_mutex;
+extern std::mutex db_mutex;
 
 int init_database();
 bool user_exists(const std::string &login);

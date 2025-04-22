@@ -6,8 +6,7 @@ LDLIBS=-lsqlite3
 
 server: server.cpp db.cpp
 
-client: client.c
-	clang -Wall -o client client.c
+client: client.cpp
 
 clean:
 	rm -rf app chat.db client server

@@ -131,7 +131,7 @@ private:
 };
 
 bool status = true;
-
+     
 void thread_func(server::client &&working)
 {
     char buffer[BUFLEN];

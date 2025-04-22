@@ -12,6 +12,7 @@
 
 typedef struct message
 {
+    std::string time;
     std::string sender;
     std::string text;
     int is_file;

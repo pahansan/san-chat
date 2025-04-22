@@ -525,7 +525,7 @@ messages_list get_messages_list(const std::string &sender_login, const std::stri
         return {};
     }
 
-    const char *sql = "SELECT sender_id, text, is_file "
+    const char *sql = "SELECT timestamp, sender_id, text, is_file "
                       "FROM messages "
                       "WHERE (sender_id = ? AND receiver_id = ?) "
                       "OR (sender_id = ? AND receiver_id = ?) "
@@ -549,15 +549,17 @@ messages_list get_messages_list(const std::string &sender_login, const std::stri
 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
     {
-        int this_message_sender_id = sqlite3_column_int(stmt, 0);
-        const char *text = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+        const char *timestamp = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        std::string timestamp_text = timestamp ? timestamp : "";
+        int this_message_sender_id = sqlite3_column_int(stmt, 1);
+        const char *text = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
         std::string message_text = text ? text : "";
-        int is_file = sqlite3_column_int(stmt, 2);
+        int is_file = sqlite3_column_int(stmt, 3);
 
         if (this_message_sender_id == sender_id)
-            messages.push_back(message{sender_login, message_text, is_file});
+            messages.push_back(message{timestamp_text, sender_login, message_text, is_file});
         else
-            messages.push_back(message{receiver_login, message_text, is_file});
+            messages.push_back(message{timestamp_text, receiver_login, message_text, is_file});
     }
 
     if (rc != SQLITE_DONE)
@@ -569,32 +571,4 @@ messages_list get_messages_list(const std::string &sender_login, const std::stri
     sqlite3_close(db);
 
     return messages;
-}
-
-int main()
-{
-    init_database();
-
-    add_user("Aboba1", "1");
-    add_user("Aboba2", "2");
-    add_user("Aboba3", "3");
-
-    if (user_exists("Aboba1"))
-        std::cout << "Aboba1\n";
-    if (user_exists("Aboba2"))
-        std::cout << "Aboba2\n";
-    if (user_exists("Aboba3"))
-        std::cout << "Aboba3\n";
-    if (user_exists("Aboba4"))
-        std::cout << "Aboba4\n";
-
-    if (verify_user("Aboba1", "1"))
-        std::cout << "Aboba1\n";
-    if (verify_user("Aboba1", "4"))
-        std::cout << "Aboba4\n";
-
-    std::cout << get_user_id("Aboba1") << '\n';
-    std::cout << get_user_id("Aboba2") << '\n';
-    std::cout << get_user_id("Aboba3") << '\n';
-    std::cout << get_user_id("Aboba4") << '\n';
 }

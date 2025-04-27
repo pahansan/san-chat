@@ -2,14 +2,19 @@
 #include <cstring>
 #include <format>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <vector>
 // #include <netinet/in.h>
 
 #include "db.hpp"
+#include "message_types.hpp"
+#include "task_queue.hpp"
 
-#define BUFLEN 1024
+#define BUFLEN (1024 * 1024)
+
+std::mutex server_mutex;
 
 class server {
 public:
@@ -125,20 +130,106 @@ private:
     struct sockaddr_in meta_;
 };
 
+std::vector<std::string> split_string(const std::string& str)
+{
+    std::stringstream ss(str);
+    std::string token;
+    std::vector<std::string> tokens;
+
+    while (getline(ss, token, '\036'))
+        tokens.push_back(token);
+
+    return tokens;
+}
+
 void thread_func(server::client&& working)
 {
     char buffer[BUFLEN];
-    int message_len = 1;
+    int message_len = BUFLEN;
+    memset(buffer, '\0', BUFLEN);
+
+    while (buffer[0] == 0) {
+        message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
+        if (message_len <= 0)
+            return;
+
+        switch (buffer[0]) {
+        case registration: {
+            std::vector<std::string> login_data = split_string(&buffer[1]);
+            std::string login = login_data[0];
+            std::string password = login_data[1];
+            if (user_exists(login)) {
+                if (send(working.get_socket(), login_exists.c_str(), login_exists.size(), 0) == -1)
+                    return;
+                memset(buffer, '\0', BUFLEN);
+            }
+            if (add_user(login, password)) {
+                if (send(working.get_socket(), db_fault.c_str(), db_fault.size(), 0) == -1)
+                    return;
+                memset(buffer, '\0', BUFLEN);
+            }
+            {
+                std::lock_guard lock(server_mutex);
+                fd_list.push_back(working.get_socket());
+                login_list.push_back(login);
+            }
+            break;
+        }
+        case login: {
+            std::vector<std::string> login_data = split_string(&buffer[1]);
+            std::string login = login_data[0];
+            std::string password = login_data[1];
+            if (!user_exists(login)) {
+                if (send(working.get_socket(), login_dont_exists.c_str(), login_dont_exists.size(), 0) == -1)
+                    return;
+                memset(buffer, '\0', BUFLEN);
+            }
+            if (!verify_user(login, password)) {
+                if (send(working.get_socket(), incorrect_password.c_str(), incorrect_password.size(), 0) == -1)
+                    return;
+                memset(buffer, '\0', BUFLEN);
+            }
+            {
+                std::lock_guard lock(server_mutex);
+                fd_list.push_back(working.get_socket());
+                login_list.push_back(login);
+            }
+            break;
+        }
+        default:
+            return;
+        }
+    }
+
+    std::string login = get_login_by_fd(working.get_socket());
+    std::string receiver_login;
+
+    change_user_status(login, ONLINE);
+    send_status_to_all();
+
     do {
         memset(buffer, '\0', BUFLEN);
         message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
 
-        std::cout << std::format("[{}:{}]: ", working.get_ip(), working.get_port());
-        if (message_len == 0)
-            std::cout << std::format("Client disconnected\n\n");
-        else
-            std::cout << std::format("{}\n\n", buffer);
+        switch (buffer[0]) {
+        case get_messages: {
+            receiver_login = &buffer[1];
+            client_send_message_list(login, receiver_login);
+            break;
+        }
+        case send_message: {
+            add_message(login, receiver_login, &buffer[1]);
+            client_send_message_list(login, receiver_login);
+            break;
+        }
+        default:
+            return;
+        }
     } while (message_len > 0);
+
+    change_user_status(login, OFFLINE);
+    erase_user(working.get_socket());
+    send_status_to_all();
 }
 
 int main()
@@ -150,6 +241,7 @@ int main()
         server tcp(AF_INET, INADDR_ANY, 0, 10);
 
         std::cout << std::format("Server up: [{}:{}]\n\n", tcp.get_ip(), tcp.get_port());
+        std::thread(handler).detach();
 
         for (;;) {
             std::thread(thread_func, tcp.accept_client()).detach();

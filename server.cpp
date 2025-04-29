@@ -85,10 +85,11 @@ public:
         memset(&meta_, 0, sizeof(meta_));
 
         meta_.sin_family = sin_family_;
-        meta_.sin_addr.s_addr = address_;
+        meta_.sin_addr.s_addr = htonl(address_);
         meta_.sin_port = htons(port_);
-        if (bind(socket_, (struct sockaddr*)&meta_, sizeof(meta_)) < 0)
-            throw std::runtime_error("Server can't bind socket");
+        if (bind(socket_, (struct sockaddr*)&meta_, sizeof(meta_)) < 0) {
+            throw std::runtime_error("Bind failed: " + std::string(strerror(errno)));
+        }
 
         socklen_t namelen = sizeof(meta_);
 
@@ -144,15 +145,17 @@ std::vector<std::string> split_string(const std::string& str)
 
 void thread_func(server::client&& working)
 {
+    std::cout << "<[" << working.get_ip() << ':' << working.get_port() << "]\n";
     char buffer[BUFLEN];
     int message_len = BUFLEN;
     memset(buffer, '\0', BUFLEN);
 
     while (buffer[0] == 0) {
         message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
-        if (message_len <= 0)
+        if (message_len <= 0) {
+            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
             return;
-
+        }
         switch (buffer[0]) {
         case registration: {
             std::vector<std::string> login_data = split_string(&buffer[1]);
@@ -160,10 +163,12 @@ void thread_func(server::client&& working)
             std::string password = login_data[1];
             if (user_exists(login)) {
                 send(working.get_socket(), login_exists.c_str(), login_exists.size(), 0);
+                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
             if (add_user(login, password)) {
                 send(working.get_socket(), db_fault.c_str(), db_fault.size(), 0);
+                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
             {
@@ -179,10 +184,12 @@ void thread_func(server::client&& working)
             std::string password = login_data[1];
             if (!user_exists(login)) {
                 send(working.get_socket(), login_dont_exists.c_str(), login_dont_exists.size(), 0);
+                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
             if (!verify_user(login, password)) {
                 send(working.get_socket(), incorrect_password.c_str(), incorrect_password.size(), 0);
+                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
             {
@@ -193,6 +200,7 @@ void thread_func(server::client&& working)
             break;
         }
         default:
+            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
             return;
         }
     }
@@ -225,6 +233,7 @@ void thread_func(server::client&& working)
         }
     } while (message_len > 0);
 
+    std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
     change_user_status(login, OFFLINE);
     erase_user(working.get_socket());
     send_status_to_all();
@@ -236,7 +245,7 @@ int main()
         if (init_database())
             return 1;
 
-        server tcp(AF_INET, INADDR_ANY, 0, 10);
+        server tcp(AF_INET, INADDR_ANY, 8080, 10);
 
         std::cout << std::format("Server up: [{}:{}]\n\n", tcp.get_ip(), tcp.get_port());
         std::thread(handler).detach();

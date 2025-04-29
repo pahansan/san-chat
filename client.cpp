@@ -19,9 +19,14 @@
 
 #define BUFLEN (1024 * 1024)
 
+enum user_state { users_list, dialogue, files_list };
+user_state current_state = users_list;
+
 typedef struct hostent hostent;
 typedef struct sockaddr_in sockaddr_in;
 typedef struct sockaddr sockaddr;
+
+std::string current_user = "";
 
 users_map parse_users(const std::string& str)
 {
@@ -37,8 +42,10 @@ users_map parse_users(const std::string& str)
     return users;
 }
 
-void print_users(users_map users)
+void print_users(const std::string& users_string)
 {
+    system("clear");
+    users_map users = parse_users(users_string);
     std::cout << "Список пользователей\n";
     for (const auto& [login, status] : users) {
         std::cout << login << ":";
@@ -57,6 +64,9 @@ void print_messages(const std::string& messages)
     std::string name;
     std::string text;
     std::string is_file;
+
+    getline(ss, name, '\036');
+    getline(ss, name, '\036');
 
     while (getline(ss, time, '\036')) {
         std::cout << "[" << time;
@@ -83,14 +93,37 @@ std::mutex chat_mutex;
 std::condition_variable cv_chat;
 std::string global_buffer;
 
+bool is_current_user(const std::string& str)
+{
+    std::stringstream ss(str);
+    std::string first;
+    std::string second;
+
+    getline(ss, first, '\036');
+    getline(ss, second, '\036');
+
+    return first == current_user || second == current_user;
+}
+
 void drawing()
 {
     for (;;) {
         std::unique_lock lock(chat_mutex);
         cv_chat.wait(lock);
         lock.unlock();
-        if (global_buffer[0] == messages)
-            print_messages(&global_buffer[1]);
+        if (global_buffer[0] == messages) {
+            {
+                std::lock_guard lock(chat_mutex);
+                if (current_state == dialogue && is_current_user(&global_buffer[1]))
+                    print_messages(&global_buffer[1]);
+            }
+        } else if (global_buffer[0] == users) {
+            {
+                std::lock_guard lock(chat_mutex);
+                if (current_state == users_list)
+                    print_users(&global_buffer[1]);
+            }
+        }
     }
 }
 
@@ -110,14 +143,53 @@ void receiving(int client_socket)
     }
 }
 
+std::string skip_spaces(const std::string& str)
+{
+    for (size_t i = 0; i < str.size(); i++) {
+        if (str[i] != ' ')
+            return str.substr(i, str.size());
+    }
+    return str;
+}
+
 void user_input(int client_socket)
 {
     std::string sending;
     std::string getting;
-    while (std::cin >> getting) {
-        sending = "\004" + getting;
+
+    while (std::getline(std::cin, getting)) {
+        if (getting == "/users") {
+            {
+                std::lock_guard lock(chat_mutex);
+                current_state = users_list;
+                current_user = "";
+            }
+            sending = get_users;
+        } else if (getting.substr(0, 7) == "/select") {
+            sending = get_messages;
+            sending += skip_spaces(getting.substr(7));
+            {
+                std::lock_guard lock(chat_mutex);
+                current_state = dialogue;
+                current_user = sending.substr(1);
+            }
+        } else {
+            {
+                std::lock_guard lock(chat_mutex);
+                if (current_state == dialogue) {
+                    sending = send_message;
+                    sending += getting;
+                } else {
+                    continue;
+                }
+            }
+        }
         send(client_socket, sending.c_str(), sending.size(), 0);
     }
+    // while (std::cin >> getting) {
+    //     sending = "\004" + getting;
+    //     send(client_socket, sending.c_str(), sending.size(), 0);
+    // }
 }
 
 int main(int argc, char* argv[])
@@ -125,8 +197,8 @@ int main(int argc, char* argv[])
     int client_socket;
     hostent* hp;
 
-    if (argc != 3) {
-        std::cout << std::format("Usage: {} hostname port\n", argv[0]);
+    if (argc != 6) {
+        std::cout << std::format("Usage: {} hostname port <reg/log> <login> <password>\n", argv[0]);
         return 1;
     }
 
@@ -157,32 +229,57 @@ int main(int argc, char* argv[])
 
     std::string sending;
     std::string getting;
-    std::cout << "Введите 1, чтобы заргистрироваться, введите 2, чтобы войти\n";
-    std::cin >> getting;
 
-    if (getting == "1")
-        sending += "\001";
-    if (getting == "2")
-        sending += "\002";
+    std::string type(argv[3]);
+    std::string login(argv[4]);
+    std::string password(argv[5]);
 
-    std::cout << "Введите логин\n";
-    std::cin >> getting;
-    sending += getting + "\036";
-    std::cout << "Введите пароль\n";
-    std::cin >> getting;
-    sending += getting;
+    if (type == "reg")
+        sending += registration;
+    if (type == "log")
+        sending += logining;
+
+    sending += login + '\036' + password;
 
     send(client_socket, sending.c_str(), sending.size(), 0);
     recv(client_socket, buffer, BUFLEN, 0);
 
-    users_map users = parse_users(buffer);
-    memset(buffer, 0, BUFLEN);
-    print_users(users);
+    std::string receiving_buf(buffer);
 
-    std::cin >> getting;
+    switch (sending[0]) {
+    case registration:
+        if (receiving_buf == login_exists) {
+            std::cout << "Пользователь с таким логином уже существует\n";
+            close(client_socket);
+            return 0;
+        }
+    case logining:
+        if (receiving_buf == login_dont_exists) {
+            std::cout << "Пользователя с таким логином не существует\n";
+            close(client_socket);
+            return 0;
+        } else if (receiving_buf == incorrect_password) {
+            std::cout << "Направильный пароль\n";
+            close(client_socket);
+            return 0;
+        }
+    }
+    if (receiving_buf == db_fault) {
+        std::cout << "Ошибка в работе базы данных\n";
+        close(client_socket);
+        return 0;
+    }
 
-    sending = "\003" + getting;
-    send(client_socket, sending.c_str(), sending.size(), 0);
+    print_users(&buffer[1]);
+
+    // std::cin >> getting;
+
+    // std::cin.clear();
+
+    // sending = get_messages;
+    // sending += getting;
+
+    // send(client_socket, sending.c_str(), sending.size(), 0);
     // recv(client_socket, buffer, BUFLEN, 0);
     // print_messages(buffer);
     // memset(buffer, 0, BUFLEN);
@@ -199,10 +296,40 @@ int main(int argc, char* argv[])
     std::thread(receiving, client_socket).detach();
     // std::thread(user_input, client_socket);
 
-    while (std::cin >> getting) {
-        sending = "\004" + getting;
+    while (std::getline(std::cin, getting)) {
+        if (getting == "/users") {
+            {
+                std::lock_guard lock(chat_mutex);
+                current_state = users_list;
+                current_user = "";
+            }
+            sending = get_users;
+        } else if (getting.substr(0, 7) == "/select") {
+            sending = get_messages;
+            sending += skip_spaces(getting.substr(7));
+            {
+                std::lock_guard lock(chat_mutex);
+                current_state = dialogue;
+                current_user = sending.substr(1);
+            }
+        } else {
+            {
+                std::lock_guard lock(chat_mutex);
+                if (current_state == dialogue) {
+                    sending = send_message;
+                    sending += getting;
+                } else {
+                    continue;
+                }
+            }
+        }
         send(client_socket, sending.c_str(), sending.size(), 0);
     }
+
+    // while (std::cin >> getting) {
+    //     sending = "\004" + getting;
+    //     send(client_socket, sending.c_str(), sending.size(), 0);
+    // }
 
     close(client_socket);
     printf("Connection closed\n");

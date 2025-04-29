@@ -1,4 +1,5 @@
 #include "task_queue.hpp"
+#include "message_types.hpp"
 
 std::vector<int> fd_list;
 std::vector<std::string> login_list;
@@ -76,10 +77,11 @@ void process_event(const event& cur)
 {
     switch (cur.type) {
     case send_status: {
-        users_map users = get_users_map();
-        std::string user_data = "\005";
-        for (const auto& [name, status] : users) {
-            user_data += name + "\036" + std::to_string(status) + "\036";
+        users_map users_list = get_users_map();
+        std::string user_data = "";
+        user_data += users;
+        for (const auto& [name, status] : users_list) {
+            user_data += name + '\036' + std::to_string(status) + '\036';
         }
         if (cur.subtype == to_all) {
             for (const auto& fd : fd_list) {
@@ -95,11 +97,13 @@ void process_event(const event& cur)
         int sender_fd = get_fd_by_login(cur.sender_login);
         int receiver_fd = get_fd_by_login(cur.receiver_login);
         messages_list list = get_messages_list(cur.sender_login, cur.receiver_login);
-        std::string string_list = "\006";
+        std::string string_list;
+        string_list = messages;
+        string_list += cur.sender_login + '\036' + cur.receiver_login + '\036';
         for (const auto& message : list) {
-            string_list += message.time + "\036";
-            string_list += message.sender + "\036";
-            string_list += message.text + "\036";
+            string_list += message.time + '\036';
+            string_list += message.sender + '\036';
+            string_list += message.text + '\036';
             string_list += std::to_string(message.is_file) + '\036';
         }
         string_list[string_list.size() - 1] = '\0';

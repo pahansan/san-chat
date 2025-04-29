@@ -159,14 +159,12 @@ void thread_func(server::client&& working)
             std::string login = login_data[0];
             std::string password = login_data[1];
             if (user_exists(login)) {
-                if (send(working.get_socket(), login_exists.c_str(), login_exists.size(), 0) == -1)
-                    return;
-                memset(buffer, '\0', BUFLEN);
+                send(working.get_socket(), login_exists.c_str(), login_exists.size(), 0);
+                return;
             }
             if (add_user(login, password)) {
-                if (send(working.get_socket(), db_fault.c_str(), db_fault.size(), 0) == -1)
-                    return;
-                memset(buffer, '\0', BUFLEN);
+                send(working.get_socket(), db_fault.c_str(), db_fault.size(), 0);
+                return;
             }
             {
                 std::lock_guard lock(server_mutex);
@@ -175,19 +173,17 @@ void thread_func(server::client&& working)
             }
             break;
         }
-        case login: {
+        case logining: {
             std::vector<std::string> login_data = split_string(&buffer[1]);
             std::string login = login_data[0];
             std::string password = login_data[1];
             if (!user_exists(login)) {
-                if (send(working.get_socket(), login_dont_exists.c_str(), login_dont_exists.size(), 0) == -1)
-                    return;
-                memset(buffer, '\0', BUFLEN);
+                send(working.get_socket(), login_dont_exists.c_str(), login_dont_exists.size(), 0);
+                return;
             }
             if (!verify_user(login, password)) {
-                if (send(working.get_socket(), incorrect_password.c_str(), incorrect_password.size(), 0) == -1)
-                    return;
-                memset(buffer, '\0', BUFLEN);
+                send(working.get_socket(), incorrect_password.c_str(), incorrect_password.size(), 0);
+                return;
             }
             {
                 std::lock_guard lock(server_mutex);
@@ -212,18 +208,20 @@ void thread_func(server::client&& working)
         message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
 
         switch (buffer[0]) {
-        case get_messages: {
-            receiver_login = &buffer[1];
-            client_send_message_list(login, receiver_login);
+        case get_users:
+            send_status_to_one(login);
             break;
-        }
-        case send_message: {
+        case get_messages:
+            receiver_login = &buffer[1];
+            if (!user_exists(receiver_login)) {
+                send(working.get_socket(), login_dont_exists.c_str(), login_dont_exists.size(), 0);
+            } else
+                client_send_message_list(login, receiver_login);
+            break;
+        case send_message:
             add_message(login, receiver_login, &buffer[1]);
             client_send_message_list(login, receiver_login);
             break;
-        }
-        default:
-            return;
         }
     } while (message_len > 0);
 

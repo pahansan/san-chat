@@ -199,7 +199,6 @@ std::vector<std::string> fit_text(const std::string& text, const int& width)
         if (symbol == ' ') {
             if (prev == no_space) {
                 if (line.size() + word.size() > width - 2) {
-                    // line.append(width - 2 - word.size(), ' ');
                     fitted.push_back(line);
                     line = "";
                 }

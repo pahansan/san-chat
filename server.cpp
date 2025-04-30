@@ -230,6 +230,8 @@ void thread_func(server::client&& working)
             add_message(login, receiver_login, &buffer[1]);
             client_send_message_list(login, receiver_login);
             break;
+        case disconnect:
+            send(working.get_socket(), login.c_str(), login.size(), 0);
         }
     } while (message_len > 0);
 

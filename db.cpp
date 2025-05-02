@@ -255,7 +255,7 @@ int add_file(const std::string& sender_login, const std::string& receiver_login,
         return 1;
     }
 
-    const char* sql = "INSERT INTO messages (is_file, sender_id, receiver_id, text) VALUES (1, ?, ?, ?);";
+    const char* sql = "INSERT INTO messages (is_file, sender_id, receiver_id, text, timestamp) VALUES (1, ?, ?, ?, datetime('now', '+7 hours'));";
     sqlite3_stmt* stmt;
 
     rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);

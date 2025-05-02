@@ -18,7 +18,7 @@ extern std::mutex server_mutex;
 extern std::mutex event_mutex;
 extern std::condition_variable event_cv;
 
-enum event_type { send_status, send_message_list, to_one, to_all };
+enum event_type { send_status, send_message_list, send_file, to_one, to_all };
 
 typedef struct event {
     event_type type;

@@ -64,6 +64,7 @@
         "format": "cpp",
         "map": "cpp",
         "buffer": "cpp",
-        "netfwd": "cpp"
+        "netfwd": "cpp",
+        "codecvt": "cpp"
     }
 }

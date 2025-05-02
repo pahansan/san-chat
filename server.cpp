@@ -1,18 +1,19 @@
 #include <arpa/inet.h>
 #include <cstring>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <vector>
-// #include <netinet/in.h>
 
 #include "db.hpp"
 #include "message_types.hpp"
 #include "task_queue.hpp"
 
-#define BUFLEN (1024 * 1024)
+#define BUFLEN (1024 * 1024 * 10)
 
 std::mutex server_mutex;
 
@@ -143,12 +144,23 @@ std::vector<std::string> split_string(const std::string& str)
     return tokens;
 }
 
+std::string get_file_name_from_message(const std::string& message)
+{
+    return message.substr(1, message.find_first_of('\036') - 1);
+}
+
+std::string get_file_from_message(const std::string& message)
+{
+    return message.substr(message.find_first_of('\036') + 1);
+}
+
 void thread_func(server::client&& working)
 {
     std::cout << "<[" << working.get_ip() << ':' << working.get_port() << "]\n";
-    char buffer[BUFLEN];
+    char* buffer = new char[BUFLEN];
     int message_len = BUFLEN;
     memset(buffer, '\0', BUFLEN);
+    std::string recieved;
 
     while (buffer[0] == 0) {
         message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
@@ -208,13 +220,19 @@ void thread_func(server::client&& working)
     std::string login = get_login_by_fd(working.get_socket());
     std::string receiver_login;
 
+    std::string filename;
+    std::string filepath;
+    std::string file_string;
+    std::ofstream file_stream;
+
     change_user_status(login, ONLINE);
     send_status_to_all();
 
     do {
         memset(buffer, '\0', BUFLEN);
+        recieved = "";
         message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
-
+        std::cout << message_len << '\n';
         switch (buffer[0]) {
         case get_users:
             send_status_to_one(login);
@@ -230,8 +248,17 @@ void thread_func(server::client&& working)
             add_message(login, receiver_login, &buffer[1]);
             client_send_message_list(login, receiver_login);
             break;
-        case disconnect:
-            send(working.get_socket(), login.c_str(), login.size(), 0);
+        case file:
+            filename = get_file_name_from_message(buffer);
+            file_string = get_file_from_message(buffer);
+            std::filesystem::create_directories("files/" + login);
+            filepath = "./files/" + login + "/" + filename;
+            file_stream.open(filepath, std::ios::binary);
+            file_stream.write(file_string.c_str(), file_string.size());
+            file_stream.close();
+            std::cout << filename << '\n';
+            add_file(login, receiver_login, filename);
+            client_send_message_list(login, receiver_login);
         }
     } while (message_len > 0);
 

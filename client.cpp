@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <netdb.h>
@@ -22,6 +23,8 @@
 #include "message_types.hpp"
 
 #define BUFLEN (1024 * 1024 * 10)
+
+#define PORT 8080
 
 bool end = false;
 
@@ -80,7 +83,7 @@ void move_cursor(int row, int col)
 
 void moveCursorToEndOfLine()
 {
-    std::cout << "\033[999C"; // Перемещаем курсор вправо на 999 позиций
+    std::cout << "\033[999C";
 }
 
 size_t utf8_strlen(const std::string& utf8_string)
@@ -92,7 +95,6 @@ size_t utf8_strlen(const std::string& utf8_string)
 
 void print_users(const std::string& users_string)
 {
-    // move_cursor(0, 0);
     system("clear");
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
@@ -101,7 +103,7 @@ void print_users(const std::string& users_string)
 
     users_map users = parse_users(users_string);
     std::cout << "Список пользователей\n";
-    size_t lines_printed = 1; // Уже вывели заголовок
+    size_t lines_printed = 1;
 
     for (const auto& [login, status] : users) {
         if (lines_printed >= height - 3)
@@ -114,17 +116,11 @@ void print_users(const std::string& users_string)
         ++lines_printed;
     }
 
-    // Заполнить оставшиеся строки
-    // for (size_t i = lines_printed; i < height - 3; ++i) {
-    //     std::cout << std::string(width, ' ') << '\n';
-    // }
-
-    // Вывод буфера ввода
     std::lock_guard lock(input_mutex);
     move_cursor(height, 0);
     std::cout << input_buffer;
     std::cout << std::string(width - utf8_strlen(input_buffer), ' ');
-    // moveCursorToEndOfLine();
+
     fflush(stdout);
 }
 
@@ -220,14 +216,19 @@ std::vector<std::string> parse_messages(const std::string& messages, const int& 
     getline(ss, name, '\036');
 
     while (getline(ss, time, '\036')) {
-        current = '[' + time;
         getline(ss, name, '\036');
-        current += ':' + name + ']';
-        parsed.push_back(current);
         getline(ss, text, '\036');
+        getline(ss, is_file, '\036');
+
+        current = '[' + time;
+        current += ':' + name;
+        if (is_file == "1")
+            current += " (file)";
+        current += ']';
+        parsed.push_back(current);
+
         fitted = fit_text(text, width);
         parsed.insert(parsed.end(), fitted.begin(), fitted.end());
-        getline(ss, is_file, '\036');
     }
 
     return parsed;
@@ -235,7 +236,6 @@ std::vector<std::string> parse_messages(const std::string& messages, const int& 
 
 void print_messages(const std::string& messages)
 {
-    // move_cursor(0, 0);
     system("clear");
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
@@ -248,17 +248,67 @@ void print_messages(const std::string& messages)
         std::cout << parsed[i] << '\n';
     }
 
-    // Заполнить оставшиеся строки до высоты терминала -1
-    // for (size_t i = parsed.size() - start; i < height - 3; ++i) {
-    //     std::cout << std::string(width, ' ') << '\n';
-    // }
-
-    // Вывод текущего буфера ввода
     std::lock_guard lock(input_mutex);
     move_cursor(height - 1, 0);
     std::cout << input_buffer;
     std::cout << std::string(width - utf8_strlen(input_buffer), ' ');
-    // moveCursorToEndOfLine();
+
+    fflush(stdout);
+}
+
+std::vector<std::string> parse_files(const std::string& messages, const int& width)
+{
+    std::vector<std::string> parsed;
+    std::stringstream ss(messages);
+    std::string time;
+    std::string name;
+    std::string text;
+    std::string is_file;
+    std::string current;
+    std::vector<std::string> fitted;
+
+    getline(ss, name, '\036');
+    getline(ss, name, '\036');
+
+    while (getline(ss, time, '\036')) {
+        getline(ss, name, '\036');
+        getline(ss, text, '\036');
+        getline(ss, is_file, '\036');
+
+        current = '[' + time;
+        current += ':' + name;
+        if (is_file == "1") {
+            current += " (file)";
+            current += ']';
+            parsed.push_back(current);
+
+            fitted = fit_text(text, width);
+            parsed.insert(parsed.end(), fitted.begin(), fitted.end());
+        }
+    }
+
+    return parsed;
+}
+
+void print_files(const std::string& messages)
+{
+    system("clear");
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    size_t width = w.ws_col;
+    size_t height = w.ws_row;
+    std::vector<std::string> parsed = parse_files(messages, width);
+    size_t start = parsed.size() >= (height - 3) ? parsed.size() - (height - 3) : 0;
+
+    for (size_t i = start; i < parsed.size(); ++i) {
+        std::cout << parsed[i] << '\n';
+    }
+
+    std::lock_guard lock(input_mutex);
+    move_cursor(height - 1, 0);
+    std::cout << input_buffer;
+    std::cout << std::string(width - utf8_strlen(input_buffer), ' ');
+
     fflush(stdout);
 }
 
@@ -288,6 +338,8 @@ void drawing()
                 std::lock_guard lock(chat_mutex);
                 if (current_state == dialogue && is_current_user(&global_buffer[1]))
                     print_messages(&global_buffer[1]);
+                if (current_state == files_list && is_current_user(&global_buffer[1]))
+                    print_files(&global_buffer[1]);
             }
         } else if (global_buffer[0] == users) {
             {
@@ -336,24 +388,21 @@ void utf8_pop_back(std::string& s)
     size_t pos = s.size() - 1;
     size_t erase_len = 1;
 
-    // Находим начало символа UTF-8
     while (pos > 0 && (s[pos] & 0xC0) == 0x80) {
         --pos;
         ++erase_len;
     }
 
-    // Определяем полную длину символа по первому байту
     if (pos < s.size()) {
         const unsigned char first = s[pos];
         if ((first & 0xF8) == 0xF0)
-            erase_len = 4; // 4-байтовый символ
+            erase_len = 4;
         else if ((first & 0xF0) == 0xE0)
-            erase_len = 3; // 3-байтовый
+            erase_len = 3;
         else if ((first & 0xE0) == 0xC0)
-            erase_len = 2; // 2-байтовый
+            erase_len = 2;
     }
 
-    // Корректируем длину, если выходим за границы строки
     if (erase_len > s.size() - pos) {
         erase_len = s.size() - pos;
     }
@@ -361,13 +410,18 @@ void utf8_pop_back(std::string& s)
     s.resize(s.size() - erase_len);
 }
 
+std::string get_file_name(const std::string& path)
+{
+    return path.substr(path.find_last_of('/') + 1);
+}
+
 int main(int argc, char* argv[])
 {
     int client_socket;
     hostent* hp;
 
-    if (argc != 6) {
-        std::cout << std::format("Usage: {} hostname port <reg/log> <login> <password>\n", argv[0]);
+    if (argc != 5) {
+        std::cout << std::format("Usage: {} hostname <reg/log> <login> <password>\n", argv[0]);
         return 1;
     }
 
@@ -381,7 +435,7 @@ int main(int argc, char* argv[])
     server_address.sin_family = AF_INET;
     hp = gethostbyname(argv[1]);
     memcpy(&server_address.sin_addr, hp->h_addr_list[0], hp->h_length);
-    server_address.sin_port = htons(atoi(argv[2]));
+    server_address.sin_port = htons(PORT);
 
     if (connect(client_socket, (sockaddr*)&server_address, sizeof(server_address)) < 0) {
         std::cerr << "Error: can't connect to server\n";
@@ -399,9 +453,9 @@ int main(int argc, char* argv[])
     std::string sending;
     std::string getting;
 
-    std::string type(argv[3]);
-    std::string login(argv[4]);
-    std::string password(argv[5]);
+    std::string type(argv[2]);
+    std::string login(argv[3]);
+    std::string password(argv[4]);
 
     if (type == "reg")
         sending += registration;
@@ -451,7 +505,7 @@ int main(int argc, char* argv[])
         if (read(STDIN_FILENO, &c, 1) != 1)
             break;
 
-        if (c == '\n') { // Нажатие Enter
+        if (c == '\n') {
             std::string message;
             {
                 std::lock_guard lock(input_mutex);
@@ -459,7 +513,6 @@ int main(int argc, char* argv[])
                 input_buffer.clear();
             }
 
-            // Обработка команд
             if (!message.empty()) {
                 std::string sending;
                 bool is_command = false;
@@ -478,6 +531,34 @@ int main(int argc, char* argv[])
                         current_state = dialogue;
                         current_user = sending.substr(1);
                         is_command = true;
+                    } else if (message.substr(0, 6) == "/files" && current_state == dialogue) {
+                        sending = get_messages;
+                        sending += current_user;
+                        current_state = files_list;
+                        is_command = true;
+                    } else if (message.substr(0, 9) == "/messages" && current_state == files_list) {
+                        sending = get_messages;
+                        sending += current_user;
+                        current_state = dialogue;
+                        is_command = true;
+                    } else if (message.substr(0, 5) == "/send" && (current_state == files_list || current_state == dialogue)) {
+                        std::string filepath = skip_spaces(message.substr(5));
+                        std::ifstream file_stream(filepath, std::ios::binary);
+                        if (file_stream.fail()) {
+                            input_buffer = "Cannot open file";
+                        } else {
+                            sending = file;
+                            sending += get_file_name(filepath) + '\036';
+                            std::string file_string((std::istreambuf_iterator<char>(file_stream)), std::istreambuf_iterator<char>());
+                            file_stream.close();
+
+                            std::ofstream to_file_stream("client_files/" + get_file_name(filepath), std::ios::binary);
+                            to_file_stream.write(file_string.c_str(), file_string.size());
+                            to_file_stream.close();
+
+                            sending += file_string;
+                        }
+
                     } else if (message == "/exit") {
                         end = true;
                         break;
@@ -492,34 +573,33 @@ int main(int argc, char* argv[])
                 if (!sending.empty()) {
                     send(client_socket, sending.c_str(), sending.size(), 0);
 
-                    // Если это команда - принудительно обновить интерфейс
                     if (is_command) {
                         std::lock_guard lock(chat_mutex);
                         if (current_state == users_list) {
-                            // Запросить актуальный список пользователей
                             send(client_socket, sending.c_str(), 1, 0);
                         } else if (current_state == dialogue) {
-                            // Запросить историю сообщений
                             send(client_socket, sending.c_str(), sending.size(), 0);
                         }
                     }
                 }
             }
-        } else if (c == 127) { // Backspace
+        } else if (c == 127) {
             std::lock_guard lock(input_mutex);
             utf8_pop_back(input_buffer);
         } else if (c >= 1 && c <= 31) {
             continue;
+        } else if (input_buffer == "Cannot open file") {
+            std::lock_guard lock(input_mutex);
+            input_buffer = c;
         } else {
             std::lock_guard lock(input_mutex);
             input_buffer += c;
         }
 
-        // Обновить отображение ввода
         struct winsize w;
         ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
         move_cursor(w.ws_row, 0);
-        std::cout << std::string(w.ws_col, ' '); // Очистить строку
+        std::cout << std::string(w.ws_col, ' ');
         std::vector<std::string> fitted = fit_text(input_buffer, w.ws_col);
         move_cursor(w.ws_row - fitted.size() + 1, 0);
         for (size_t i = 0; i < fitted.size(); i++) {
@@ -527,8 +607,7 @@ int main(int argc, char* argv[])
             if (i != fitted.size() - 1)
                 std::cout << std::string(w.ws_col - utf8_strlen(fitted[i]), ' ');
         }
-        // std::cout << input_buffer;
-        // moveCursorToEndOfLine();
+
         fflush(stdout);
     }
 

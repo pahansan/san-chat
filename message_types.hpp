@@ -2,7 +2,7 @@
 
 #include <string>
 
-enum message_type { registration = 1, logining, get_messages, send_message, users, messages, get_users, disconnect };
+enum message_type { registration = 1, logining, get_messages, send_message, users, messages, get_users, get_file, file };
 
 extern std::string login_exists;
 extern std::string db_fault;

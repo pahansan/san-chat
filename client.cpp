@@ -1,8 +1,12 @@
 #include "db.hpp"
+#include "message_types.hpp"
+#include "sendrecv.hpp"
+
 #include <codecvt>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -18,9 +22,6 @@
 #include <termios.h>
 #include <thread>
 #include <unistd.h>
-
-#include "db.hpp"
-#include "message_types.hpp"
 
 #define BUFLEN (1024 * 1024 * 10)
 
@@ -45,6 +46,7 @@ typedef struct sockaddr_in sockaddr_in;
 typedef struct sockaddr sockaddr;
 
 std::string current_user = "";
+std::string receiving_file = "";
 
 struct termios orig_termios;
 
@@ -120,6 +122,7 @@ void print_users(const std::string& users_string)
     move_cursor(height, 0);
     std::cout << input_buffer;
     std::cout << std::string(width - utf8_strlen(input_buffer), ' ');
+    move_cursor(height, utf8_strlen(input_buffer) % width + 1);
 
     fflush(stdout);
 }
@@ -249,9 +252,10 @@ void print_messages(const std::string& messages)
     }
 
     std::lock_guard lock(input_mutex);
-    move_cursor(height - 1, 0);
+    move_cursor(height, 0);
     std::cout << input_buffer;
     std::cout << std::string(width - utf8_strlen(input_buffer), ' ');
+    move_cursor(height, utf8_strlen(input_buffer) % width + 1);
 
     fflush(stdout);
 }
@@ -305,9 +309,10 @@ void print_files(const std::string& messages)
     }
 
     std::lock_guard lock(input_mutex);
-    move_cursor(height - 1, 0);
+    move_cursor(height, 0);
     std::cout << input_buffer;
     std::cout << std::string(width - utf8_strlen(input_buffer), ' ');
+    move_cursor(height, utf8_strlen(input_buffer) % width + 1);
 
     fflush(stdout);
 }
@@ -353,22 +358,34 @@ void drawing()
 
 void receiving(int client_socket)
 {
-    int message_len = BUFLEN;
-    char* buffer = new char[BUFLEN];
-    memset(buffer, 0, BUFLEN);
+    std::string received;
     while (true) {
-        size_t received = recv(client_socket, buffer, BUFLEN, 0);
+        size_t bytes_received = my_recv(client_socket, received);
+        if (bytes_received < 0 && !end) {
+            std::cerr << "Сервер не отвечает\n";
+            end = true;
+        }
         if (end)
             break;
 
+        if (received == file_not_found) {
+            std::lock_guard lk(input_mutex);
+            std::cout << "File not found";
+            std::cout << input_buffer;
+            std::cout.flush();
+            continue;
+        }
+
+        if (received[0] == file) {
+            recv_file(client_socket, receiving_file);
+        }
+
         {
             std::lock_guard lock(chat_mutex);
-            global_buffer = buffer;
+            global_buffer = received;
         }
         cv_chat.notify_one();
-        memset(buffer, 0, BUFLEN);
     }
-    delete[] buffer;
 }
 
 std::string skip_spaces(const std::string& str)
@@ -447,8 +464,7 @@ int main(int argc, char* argv[])
 
     signal(SIGPIPE, SIG_IGN);
 
-    char* buffer = new char[BUFLEN];
-    memset(buffer, 0, BUFLEN);
+    std::string received;
 
     std::string sending;
     std::string getting;
@@ -463,49 +479,62 @@ int main(int argc, char* argv[])
         sending += logining;
 
     sending += login + '\036' + password;
-
-    send(client_socket, sending.c_str(), sending.size(), 0);
-    recv(client_socket, buffer, BUFLEN, 0);
-
-    std::string receiving_buf(buffer);
+    std::cout << login << ":" << password << '\n';
+    my_send(client_socket, sending);
+    my_recv(client_socket, received);
 
     switch (sending[0]) {
     case registration:
-        if (receiving_buf == login_exists) {
+        if (received == login_exists) {
             std::cout << "Пользователь с таким логином уже существует\n";
             close(client_socket);
             return 0;
         }
     case logining:
-        if (receiving_buf == login_dont_exists) {
+        if (received == login_dont_exists) {
             std::cout << "Пользователя с таким логином не существует\n";
             close(client_socket);
             return 0;
-        } else if (receiving_buf == incorrect_password) {
+        } else if (received == incorrect_password) {
             std::cout << "Направильный пароль\n";
             close(client_socket);
             return 0;
         }
     }
-    if (receiving_buf == db_fault) {
+    if (received == db_fault) {
         std::cout << "Ошибка в работе базы данных\n";
         close(client_socket);
         return 0;
     }
 
-    print_users(&buffer[1]);
+    print_users(received.substr(1));
 
     std::thread drawing_thread(drawing);
     std::thread receiving_thread(receiving, client_socket);
 
+    std::string filepath;
+
     enableRawMode();
 
     while (true) {
+        struct winsize w;
+        ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+        if (end)
+            break;
         char c;
         if (read(STDIN_FILENO, &c, 1) != 1)
             break;
 
         if (c == '\n') {
+            if (input_buffer == "Cannot open file") {
+                std::lock_guard lock(input_mutex);
+                input_buffer = "";
+            } else if (input_buffer == "Wrong username") {
+                std::lock_guard lock(input_mutex);
+                input_buffer = "";
+            }
+            
             std::string message;
             {
                 std::lock_guard lock(input_mutex);
@@ -525,7 +554,7 @@ int main(int argc, char* argv[])
                         current_user = "";
                         sending = get_users;
                         is_command = true;
-                    } else if (message.substr(0, 7) == "/select") {
+                    } else if (message.substr(0, 7) == "/select" && current_state == users_list) {
                         sending = get_messages;
                         sending += skip_spaces(message.substr(7));
                         current_state = dialogue;
@@ -542,23 +571,24 @@ int main(int argc, char* argv[])
                         current_state = dialogue;
                         is_command = true;
                     } else if (message.substr(0, 5) == "/send" && (current_state == files_list || current_state == dialogue)) {
-                        std::string filepath = skip_spaces(message.substr(5));
-                        std::ifstream file_stream(filepath, std::ios::binary);
-                        if (file_stream.fail()) {
+                        filepath = skip_spaces(message.substr(5));
+                        if (!std::filesystem::exists(filepath)) {
                             input_buffer = "Cannot open file";
                         } else {
                             sending = file;
-                            sending += get_file_name(filepath) + '\036';
-                            std::string file_string((std::istreambuf_iterator<char>(file_stream)), std::istreambuf_iterator<char>());
-                            file_stream.close();
-
-                            std::ofstream to_file_stream("client_files/" + get_file_name(filepath), std::ios::binary);
-                            to_file_stream.write(file_string.c_str(), file_string.size());
-                            to_file_stream.close();
-
-                            sending += file_string;
+                            sending += get_file_name(filepath);
                         }
-
+                    } else if (message.substr(0, 4) == "/get" && (current_state == files_list || current_state == dialogue)) {
+                        receiving_file = skip_spaces(message.substr(4));
+                        receiving_file = receiving_file.substr(0, receiving_file.find_first_of(' '));
+                        std::string username = message.substr(message.find_last_of(' ') + 1);
+                        if (username == login || username == current_user) {
+                            sending = get_file;
+                            sending += receiving_file + '\036' + username;
+                            is_command = false;
+                        } else {
+                            input_buffer = "Wrong username";
+                        }
                     } else if (message == "/exit") {
                         end = true;
                         break;
@@ -571,14 +601,22 @@ int main(int argc, char* argv[])
                 }
 
                 if (!sending.empty()) {
-                    send(client_socket, sending.c_str(), sending.size(), 0);
-
+                    my_send(client_socket, sending);
+                    if (sending[0] == file) {
+                        std::lock_guard lk(input_mutex);
+                        move_cursor(w.ws_row, 0);
+                        std::cout << "Sending...";
+                        std::cout << std::string(w.ws_col - 10, ' ');
+                        std::cout << input_buffer;
+                        std::cout.flush();
+                        send_file(client_socket, filepath);
+                    }
                     if (is_command) {
                         std::lock_guard lock(chat_mutex);
                         if (current_state == users_list) {
-                            send(client_socket, sending.c_str(), 1, 0);
+                            my_send(client_socket, sending);
                         } else if (current_state == dialogue) {
-                            send(client_socket, sending.c_str(), sending.size(), 0);
+                            my_send(client_socket, sending);
                         }
                     }
                 }
@@ -591,13 +629,14 @@ int main(int argc, char* argv[])
         } else if (input_buffer == "Cannot open file") {
             std::lock_guard lock(input_mutex);
             input_buffer = c;
+        } else if (input_buffer == "Wrong username") {
+            std::lock_guard lock(input_mutex);
+            input_buffer = c;
         } else {
             std::lock_guard lock(input_mutex);
             input_buffer += c;
         }
 
-        struct winsize w;
-        ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
         move_cursor(w.ws_row, 0);
         std::cout << std::string(w.ws_col, ' ');
         std::vector<std::string> fitted = fit_text(input_buffer, w.ws_col);

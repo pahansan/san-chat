@@ -1,5 +1,6 @@
 #include "task_queue.hpp"
 #include "message_types.hpp"
+#include "sendrecv.hpp"
 
 std::vector<int> fd_list;
 std::vector<std::string> login_list;
@@ -85,11 +86,11 @@ void process_event(const event& cur)
         }
         if (cur.subtype == to_all) {
             for (const auto& fd : fd_list) {
-                send(fd, user_data.c_str(), user_data.size(), 0);
+                my_send(fd, user_data);
             }
         } else {
             int receiver_fd = get_fd_by_login(cur.receiver_login);
-            send(receiver_fd, user_data.c_str(), user_data.size(), 0);
+            my_send(receiver_fd, user_data);
         }
         break;
     }
@@ -108,9 +109,9 @@ void process_event(const event& cur)
         }
         string_list[string_list.size() - 1] = '\0';
         if (sender_fd != -1)
-            send(sender_fd, string_list.c_str(), string_list.size(), 0);
+            my_send(sender_fd, string_list);
         if (receiver_fd != -1)
-            send(receiver_fd, string_list.c_str(), string_list.size(), 0);
+            my_send(receiver_fd, string_list);
         break;
     }
     default:

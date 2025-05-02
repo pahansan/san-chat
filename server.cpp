@@ -1,3 +1,8 @@
+#include "db.hpp"
+#include "message_types.hpp"
+#include "sendrecv.hpp"
+#include "task_queue.hpp"
+
 #include <arpa/inet.h>
 #include <cstring>
 #include <filesystem>
@@ -8,10 +13,6 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
-
-#include "db.hpp"
-#include "message_types.hpp"
-#include "task_queue.hpp"
 
 #define BUFLEN (1024 * 1024 * 10)
 
@@ -149,37 +150,43 @@ std::string get_file_name_from_message(const std::string& message)
     return message.substr(1, message.find_first_of('\036') - 1);
 }
 
-std::string get_file_from_message(const std::string& message)
+std::vector<char> get_file_from_message(const std::string& message, ssize_t bytes_received)
 {
-    return message.substr(message.find_first_of('\036') + 1);
+    std::vector<char> raw_data;
+    raw_data.resize(message.size() - (message.find_first_of('\036') + 1));
+    for (const auto& byte : message.substr(message.find_first_of('\036') + 1))
+        raw_data.push_back(byte);
+    return raw_data;
 }
 
 void thread_func(server::client&& working)
 {
     std::cout << "<[" << working.get_ip() << ':' << working.get_port() << "]\n";
-    char* buffer = new char[BUFLEN];
-    int message_len = BUFLEN;
-    memset(buffer, '\0', BUFLEN);
-    std::string recieved;
 
-    while (buffer[0] == 0) {
-        message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
-        if (message_len <= 0) {
+    ssize_t bytes_received;
+    std::string received = "";
+
+    const int socket = working.get_socket();
+
+    while (received[0] == '\0') {
+        bytes_received = my_recv(working.get_socket(), received);
+        if (bytes_received < 0) {
             std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
             return;
         }
-        switch (buffer[0]) {
+        switch (received[0]) {
         case registration: {
-            std::vector<std::string> login_data = split_string(&buffer[1]);
+            std::vector<std::string> login_data = split_string(received.substr(1));
             std::string login = login_data[0];
             std::string password = login_data[1];
+
             if (user_exists(login)) {
-                send(working.get_socket(), login_exists.c_str(), login_exists.size(), 0);
+                my_send(socket, login_exists);
                 std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
             if (add_user(login, password)) {
-                send(working.get_socket(), db_fault.c_str(), db_fault.size(), 0);
+                my_send(socket, db_fault);
                 std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
@@ -191,22 +198,23 @@ void thread_func(server::client&& working)
             break;
         }
         case logining: {
-            std::vector<std::string> login_data = split_string(&buffer[1]);
+            std::vector<std::string> login_data = split_string(received.substr(1));
             std::string login = login_data[0];
             std::string password = login_data[1];
+            std::cout << login << ":" << password << '\n';
             if (!user_exists(login)) {
-                send(working.get_socket(), login_dont_exists.c_str(), login_dont_exists.size(), 0);
+                my_send(socket, login_dont_exists);
                 std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
             if (!verify_user(login, password)) {
-                send(working.get_socket(), incorrect_password.c_str(), incorrect_password.size(), 0);
+                my_send(socket, incorrect_password);
                 std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
                 return;
             }
             {
                 std::lock_guard lock(server_mutex);
-                fd_list.push_back(working.get_socket());
+                fd_list.push_back(socket);
                 login_list.push_back(login);
             }
             break;
@@ -217,50 +225,56 @@ void thread_func(server::client&& working)
         }
     }
 
-    std::string login = get_login_by_fd(working.get_socket());
+    std::string login = get_login_by_fd(socket);
     std::string receiver_login;
 
     std::string filename;
     std::string filepath;
-    std::string file_string;
+    std::vector<char> raw_data;
     std::ofstream file_stream;
 
     change_user_status(login, ONLINE);
     send_status_to_all();
 
     do {
-        memset(buffer, '\0', BUFLEN);
-        recieved = "";
-        message_len = recv(working.get_socket(), buffer, BUFLEN, 0);
-        std::cout << message_len << '\n';
-        switch (buffer[0]) {
+        bytes_received = my_recv(socket, received);
+
+        switch (received[0]) {
         case get_users:
             send_status_to_one(login);
             break;
         case get_messages:
-            receiver_login = &buffer[1];
+            receiver_login = received.substr(1);
             if (!user_exists(receiver_login)) {
-                send(working.get_socket(), login_dont_exists.c_str(), login_dont_exists.size(), 0);
+                my_send(socket, login_dont_exists);
             } else
                 client_send_message_list(login, receiver_login);
             break;
         case send_message:
-            add_message(login, receiver_login, &buffer[1]);
+            add_message(login, receiver_login, received.substr(1));
             client_send_message_list(login, receiver_login);
             break;
         case file:
-            filename = get_file_name_from_message(buffer);
-            file_string = get_file_from_message(buffer);
+            filename = received.substr(1);
             std::filesystem::create_directories("files/" + login);
             filepath = "./files/" + login + "/" + filename;
-            file_stream.open(filepath, std::ios::binary);
-            file_stream.write(file_string.c_str(), file_string.size());
-            file_stream.close();
-            std::cout << filename << '\n';
+            recv_file(socket, filepath);
             add_file(login, receiver_login, filename);
             client_send_message_list(login, receiver_login);
+        case get_file:
+            std::string filename = received.substr(1, received.find_first_of('\036') - 1);
+            std::string username = received.substr(received.find_last_of('\036') + 1);
+            std::string filepath = "files/" + username + "/" + filename;
+            std::string to_send;
+            to_send = file;
+            if (!std::filesystem::exists(filepath)) {
+                my_send(socket, file_not_found);
+            } else {
+                my_send(socket, to_send);
+                send_file(socket, filepath);
+            }
         }
-    } while (message_len > 0);
+    } while (bytes_received > 0);
 
     std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
     change_user_status(login, OFFLINE);

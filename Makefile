@@ -1,35 +1,62 @@
-CXX = clang++
-CXXFLAGS = -Wall -std=c++20 -O3 -MMD -MP
-LDLIBS = -lsqlite3
+# Компилятор и флаги
+CXX := clang++
+CXXFLAGS := -Wall -std=c++20 -MMD -MP
 
-SERVER = server
-CLIENT = san-chat
+# Библиотеки
+LDLIBS := -lsqlite3
 
-SRC_DIR = src
-OBJ_DIR = obj
+# Каталоги
+SRC_DIR := src
+OBJ_DIR := obj
+SRV_OBJ_DIR := $(OBJ_DIR)/server
+CLT_OBJ_DIR := $(OBJ_DIR)/client
 
-SERVER_SRCS = $(SRC_DIR)/server.cpp $(SRC_DIR)/db.cpp $(SRC_DIR)/task_queue.cpp $(SRC_DIR)/message_types.cpp $(SRC_DIR)/sendrecv.cpp
-CLIENT_SRCS = $(SRC_DIR)/client.cpp $(SRC_DIR)/message_types.cpp $(SRC_DIR)/sendrecv.cpp
+# Исходные файлы
+SERVER_SRCS := 	$(SRC_DIR)/server.cpp \
+				$(SRC_DIR)/db.cpp \
+				$(SRC_DIR)/task_queue.cpp \
+				$(SRC_DIR)/message_types.cpp \
+				$(SRC_DIR)/sendrecv.cpp
 
-SERVER_OBJS = $(SERVER_SRCS:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
-CLIENT_OBJS = $(CLIENT_SRCS:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
+CLIENT_SRCS := 	$(SRC_DIR)/client.cpp \
+				$(SRC_DIR)/message_types.cpp \
+				$(SRC_DIR)/sendrecv.cpp \
+				$(SRC_DIR)/utf8_string.cpp \
+				$(SRC_DIR)/terminal.cpp \
+				$(SRC_DIR)/parsing.cpp \
+				$(SRC_DIR)/interface.cpp \
+				$(SRC_DIR)/thread_handlers.cpp
 
--include $(SERVER_OBJS:$(OBJ_DIR)/%.o=$(OBJ_DIR)/%.d)
--include $(CLIENT_OBJS:$(OBJ_DIR)/%.o=$(OBJ_DIR)/%.d)
+# Объектные файлы
+SERVER_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(SRV_OBJ_DIR)/%.o,$(SERVER_SRCS))
+CLIENT_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(CLT_OBJ_DIR)/%.o,$(CLIENT_SRCS))
 
-all: $(SERVER) $(CLIENT)
+# Цели по умолчанию
+all: server client
 
-$(SERVER): $(SERVER_OBJS)
-	$(CXX) $(SERVER_OBJS) -o $(SERVER) $(LDLIBS)
+# Сборка серверной части
+server: $(SERVER_OBJS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
-$(CLIENT): $(CLIENT_OBJS)
-	$(CXX) $(CLIENT_OBJS) -o $(CLIENT) $(LDLIBS)
+# Сборка клиентской части
+client: $(CLIENT_OBJS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	@mkdir -p $(OBJ_DIR)
+# Правила компиляции исходных файлов в объектные
+$(SRV_OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+$(CLT_OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Подключение файлов зависимостей
+-include $(SERVER_OBJS:.o=.d)
+-include $(CLIENT_OBJS:.o=.d)
+
+# Очистка
 clean:
-	rm -rf $(OBJ_DIR) $(SERVER) $(CLIENT)
+	rm -rf $(OBJ_DIR) server client
 
 .PHONY: all clean

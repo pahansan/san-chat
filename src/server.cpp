@@ -1,5 +1,6 @@
 #include "db.hpp"
 #include "message_types.hpp"
+#include "net.hpp"
 #include "sendrecv.hpp"
 #include "task_queue.hpp"
 
@@ -14,8 +15,6 @@
 #include <thread>
 #include <vector>
 
-#define BUFLEN (1024 * 1024 * 10)
-
 std::mutex server_mutex;
 
 class server {
@@ -29,7 +28,7 @@ public:
         {
             memset(&meta_, 0, sizeof(meta_));
             socklen_t length = sizeof(meta_);
-            if ((socket_ = accept(server_socket, (struct sockaddr*)&meta_, &length)) < 0)
+            if ((socket_ = accept(server_socket, (sockaddr*)&meta_, &length)) < 0)
                 throw std::runtime_error("Server can't accept client");
         }
 
@@ -89,13 +88,13 @@ public:
         meta_.sin_family = sin_family_;
         meta_.sin_addr.s_addr = htonl(address_);
         meta_.sin_port = htons(port_);
-        if (bind(socket_, (struct sockaddr*)&meta_, sizeof(meta_)) < 0) {
+        if (bind(socket_, (sockaddr*)&meta_, sizeof(meta_)) < 0) {
             throw std::runtime_error("Bind failed: " + std::string(strerror(errno)));
         }
 
         socklen_t namelen = sizeof(meta_);
 
-        if (getsockname(socket_, (struct sockaddr*)&meta_, &namelen) < 0)
+        if (getsockname(socket_, (sockaddr*)&meta_, &namelen) < 0)
             throw std::runtime_error("Server can't get socket name");
 
         if (listen(socket_, queue_len) < 0)
@@ -130,7 +129,7 @@ public:
 
 private:
     int socket_;
-    struct sockaddr_in meta_;
+    sockaddr_in meta_;
 };
 
 std::vector<std::string> split_string(const std::string& str)
@@ -288,7 +287,7 @@ int main()
         if (init_database())
             return 1;
 
-        server tcp(AF_INET, INADDR_ANY, 8080, 10);
+        server tcp(AF_INET, INADDR_ANY, PORT, 10);
 
         std::cout << std::format("Server up: [{}:{}]\n\n", tcp.get_ip(), tcp.get_port());
         std::thread(handler).detach();

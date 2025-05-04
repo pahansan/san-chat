@@ -27,6 +27,7 @@
 
 #define PORT 8080
 
+
 bool end = false;
 
 enum user_state { users_list, dialogue, files_list };
@@ -534,7 +535,7 @@ int main(int argc, char* argv[])
                 std::lock_guard lock(input_mutex);
                 input_buffer = "";
             }
-            
+
             std::string message;
             {
                 std::lock_guard lock(input_mutex);

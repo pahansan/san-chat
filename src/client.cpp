@@ -66,47 +66,52 @@ int main(int argc, char* argv[])
                     set_current_state(users_list);
                     set_current_user("");
                     sending = get_users;
-                } else if (message.substr(0, 7) == "/select" && cur_state == users_list) {
-                    sending = get_messages;
-                    sending += skip_spaces(message.substr(7));
-                    set_current_state(dialogue);
-                    set_current_user(sending.substr(1));
-                } else if (message.substr(0, 6) == "/files" && cur_state == dialogue) {
-                    sending = get_messages;
-                    sending += cur_user;
-                    set_current_state(files_list);
-                } else if (message.substr(0, 9) == "/messages" && cur_state == files_list) {
-                    sending = get_messages;
-                    sending += cur_user;
-                    set_current_state(dialogue);
-                } else if (message.substr(0, 5) == "/send" && (cur_state == files_list || cur_state == dialogue)) {
-                    filepath = skip_spaces(message.substr(5));
-                    if (!std::filesystem::exists(filepath)) {
-                        print_notification("Cannot open file");
-                        continue;
+                } else if (cur_state == users_list) {
+                    if (message.substr(0, 7) == "/select") {
+                        sending = get_messages;
+                        sending += skip_spaces(message.substr(7));
+                        set_current_state(dialogue);
+                        set_current_user(sending.substr(1));
                     } else {
-                        sending = file;
-                        sending += get_file_name(filepath);
+                        sending = "";
                     }
-                } else if (message.substr(0, 4) == "/get" && (cur_state == files_list || cur_state == dialogue)) {
-                    std::string to_receive = skip_spaces(message.substr(4));
-                    to_receive = to_receive.substr(0, to_receive.find_first_of(' '));
-                    set_receiving_file(to_receive);
-                    std::string username = message.substr(message.find_last_of(' ') + 1);
-                    if (username == login || username == cur_user) {
-                        sending = get_file;
-                        sending += to_receive + '\036' + username;
-                    } else {
-                        print_notification("Wrong username");
-                        continue;
+                } else if (cur_state == dialogue || cur_state == files_list) {
+                    if (message.substr(0, 6) == "/files") {
+                        sending = get_messages;
+                        sending += cur_user;
+                        set_current_state(files_list);
+                    } else if (message.substr(0, 9) == "/messages") {
+                        sending = get_messages;
+                        sending += cur_user;
+                        set_current_state(dialogue);
+                    } else if (message.substr(0, 5) == "/send") {
+                        filepath = skip_spaces(message.substr(5));
+                        if (!std::filesystem::exists(filepath)) {
+                            print_notification("Cannot open file");
+                            continue;
+                        } else {
+                            sending = file;
+                            sending += get_file_name(filepath);
+                        }
+                    } else if (message.substr(0, 4) == "/get") {
+                        std::string to_receive = skip_spaces(message.substr(4));
+                        to_receive = to_receive.substr(0, to_receive.find_first_of(' '));
+                        set_receiving_file(to_receive);
+                        std::string username = message.substr(message.find_last_of(' ') + 1);
+                        if (username == login || username == cur_user) {
+                            sending = get_file;
+                            sending += to_receive + '\036' + username;
+                        } else {
+                            print_notification("Wrong username");
+                            continue;
+                        }
+                    } else if (cur_state == dialogue) {
+                        sending = std::string(1, send_message);
+                        sending += message;
                     }
                 } else if (message == "/exit") {
                     end = true;
                     break;
-                } else if (current_state == dialogue) {
-                    sending = std::string(1, send_message) + message;
-                } else if (current_state == users_list) {
-                    sending = get_users;
                 }
 
                 if (!sending.empty()) {

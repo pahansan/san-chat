@@ -46,8 +46,9 @@ void drawing()
 void receiving(int client_socket)
 {
     std::string received;
+    size_t bytes_received;
     while (true) {
-        size_t bytes_received = my_recv(client_socket, received);
+        bytes_received = my_recv(client_socket, received);
         if (bytes_received <= 0 && !end) {
             std::cerr << "Сервер не отвечает\n";
             end = true;
@@ -58,6 +59,9 @@ void receiving(int client_socket)
         if (received == file_not_found) {
             print_notification("File not found");
             continue;
+        } else if (received == login_dont_exists) {
+            print_notification("Такого пользователя не существует");
+            set_current_state(users_list);
         }
 
         if (received[0] == file) {

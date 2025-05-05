@@ -10,6 +10,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <signal.h>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -238,9 +239,10 @@ void thread_func(server::client&& working)
         case get_messages:
             receiver_login = received.substr(1);
             if (!user_exists(receiver_login)) {
-                my_send(socket, login_dont_exists);
-            } else
+                bytes_received = my_send(socket, login_dont_exists);
+            } else {
                 client_send_message_list(login, receiver_login);
+            }
             break;
         case send_message:
             add_message(login, receiver_login, received.substr(1));
@@ -250,9 +252,12 @@ void thread_func(server::client&& working)
             filename = received.substr(1);
             std::filesystem::create_directories("files/" + login);
             filepath = "./files/" + login + "/" + filename;
-            recv_file(socket, filepath);
-            add_file(login, receiver_login, filename);
-            client_send_message_list(login, receiver_login);
+            bytes_received = recv_file(socket, filepath);
+            if (bytes_received > 0) {
+                add_file(login, receiver_login, filename);
+                client_send_message_list(login, receiver_login);
+            }
+            break;
         case get_file:
             std::string filename = received.substr(1, received.find_first_of('\036') - 1);
             std::string username = received.substr(received.find_last_of('\036') + 1);
@@ -260,11 +265,12 @@ void thread_func(server::client&& working)
             std::string to_send;
             to_send = file;
             if (!std::filesystem::exists(filepath)) {
-                my_send(socket, file_not_found);
+                bytes_received = my_send(socket, file_not_found);
             } else {
-                my_send(socket, to_send);
-                send_file(socket, filepath);
+                bytes_received = my_send(socket, to_send);
+                bytes_received = send_file(socket, filepath);
             }
+            break;
         }
     } while (bytes_received > 0);
 
@@ -276,6 +282,7 @@ void thread_func(server::client&& working)
 
 int main()
 {
+    signal(SIGPIPE, SIG_IGN);
     try {
         if (init_database())
             return 1;

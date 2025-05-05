@@ -4,47 +4,40 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <vector>
 
 ssize_t my_send(const int& fd, const std::string& data)
 {
-    // 1) Заголовок — 4 байта длины в сетевом порядке
     uint32_t netlen = htonl(static_cast<uint32_t>(data.size()));
 
-    // Отправляем заголовок целиком
     ssize_t ret = send(fd, &netlen, sizeof(netlen), MSG_NOSIGNAL);
     if (ret != sizeof(netlen)) {
-        // либо ошибка, либо отправлено не всё
         return (ret < 0 ? ret : -1);
     }
 
-    // 2) Отправляем payload по частям
     size_t total = 0;
     while (total < data.size()) {
         ret = send(fd, data.data() + total, data.size() - total, MSG_NOSIGNAL);
         if (ret <= 0) {
-            // либо ошибка, либо закрыт сокет
             return ret;
         }
         total += ret;
     }
 
-    // Вернём количество отправленных байт самого payload
     return static_cast<ssize_t>(total);
 }
 
 ssize_t my_recv(const int& fd, std::string& data)
 {
-    // 1) Читаем 4-байтовый заголовок
     uint32_t netlen;
     ssize_t ret = recv(fd, &netlen, sizeof(netlen), MSG_WAITALL);
     if (ret <= 0)
         return ret;
     if (ret != sizeof(netlen))
-        return -1; // частичный заголовок — это уже ошибка
+        return -1;
     uint32_t message_size = ntohl(netlen);
 
-    // 2) Выделяем буфер строго под payload
     std::vector<char> buffer(message_size);
     ssize_t total = 0;
     while (total < (ssize_t)message_size) {
@@ -54,7 +47,6 @@ ssize_t my_recv(const int& fd, std::string& data)
         total += ret;
     }
 
-    // 3) Собираем std::string ровно из тех байт, что пришли
     data.assign(buffer.data(), message_size);
     return total;
 }

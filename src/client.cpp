@@ -113,19 +113,16 @@ int main(int argc, char* argv[])
             break;
 
         if (c == '\n') {
-            if (input_buffer == "Cannot open file") {
-                std::lock_guard lock(input_mutex);
-                input_buffer = "";
-            } else if (input_buffer == "Wrong username") {
-                std::lock_guard lock(input_mutex);
-                input_buffer = "";
+            if (get_input_buffer() == "Cannot open file") {
+                set_input_buffer("");
+            } else if (get_input_buffer() == "Wrong username") {
+                set_input_buffer("");
             }
 
             std::string message;
             {
-                std::lock_guard lock(input_mutex);
-                message = input_buffer;
-                input_buffer.clear();
+                message = get_input_buffer();
+                set_input_buffer("");
             }
 
             if (!message.empty()) {
@@ -159,7 +156,7 @@ int main(int argc, char* argv[])
                     } else if (message.substr(0, 5) == "/send" && (current_state == files_list || current_state == dialogue)) {
                         filepath = skip_spaces(message.substr(5));
                         if (!std::filesystem::exists(filepath)) {
-                            input_buffer = "Cannot open file";
+                            set_input_buffer("Cannot open file");
                         } else {
                             sending = file;
                             sending += get_file_name(filepath);
@@ -173,7 +170,7 @@ int main(int argc, char* argv[])
                             sending += receiving_file + '\036' + username;
                             is_command = false;
                         } else {
-                            input_buffer = "Wrong username";
+                            set_input_buffer("Wrong username");
                         }
                     } else if (message == "/exit") {
                         end = true;
@@ -189,13 +186,11 @@ int main(int argc, char* argv[])
                 if (!sending.empty()) {
                     my_send(client_socket, sending);
                     if (sending[0] == file) {
-                        std::lock_guard lk(input_mutex);
-                        move_cursor(w.ws_row, 0);
-                        std::cout << "Sending...";
-                        std::cout << std::string(w.ws_col - 10, ' ');
-                        std::cout << input_buffer;
-                        std::cout.flush();
+                        set_input_buffer("Sending...");
+                        update_user_input();
                         send_file(client_socket, filepath);
+                        set_input_buffer("");
+                        update_user_input();
                     }
                     if (is_command) {
                         std::lock_guard lock(chat_mutex);
@@ -212,15 +207,12 @@ int main(int argc, char* argv[])
             utf8_pop_back(input_buffer);
         } else if (c >= 1 && c <= 31) {
             continue;
-        } else if (input_buffer == "Cannot open file") {
-            std::lock_guard lock(input_mutex);
-            input_buffer = c;
-        } else if (input_buffer == "Wrong username") {
-            std::lock_guard lock(input_mutex);
-            input_buffer = c;
+        } else if (get_input_buffer() == "Cannot open file") {
+            set_input_buffer(c);
+        } else if (get_input_buffer() == "Wrong username") {
+            set_input_buffer(c);
         } else {
-            std::lock_guard lock(input_mutex);
-            input_buffer += c;
+            set_input_buffer(get_input_buffer() + c);
         }
 
         update_user_input();

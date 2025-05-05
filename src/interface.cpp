@@ -18,8 +18,7 @@ void update_user_input()
 {
     const auto [width, height] = get_terminal_size();
 
-    std::lock_guard lock(input_mutex);
-    std::vector<std::string> fitted = fit_text(input_buffer, width - 1);
+    std::vector<std::string> fitted = fit_text(get_input_buffer(), width - 1);
 
     move_cursor(height, 0);
     std::cout << std::string(width, ' ');
@@ -94,4 +93,22 @@ void print_files(const std::string& messages)
     }
 
     fflush(stdout);
+}
+
+void set_input_buffer(const std::string& str)
+{
+    std::lock_guard lock(input_mutex);
+    input_buffer = str;
+}
+
+void set_input_buffer(const char& c)
+{
+    std::lock_guard lock(input_mutex);
+    input_buffer = c;
+}
+
+std::string get_input_buffer()
+{
+    std::lock_guard lock(input_mutex);
+    return input_buffer;
 }

@@ -157,7 +157,7 @@ std::vector<char> get_file_from_message(const std::string& message, ssize_t byte
     return raw_data;
 }
 
-void thread_func(server::client&& working)
+void client_thread(server::client&& working)
 {
     std::cout << "<[" << working.get_ip() << ':' << working.get_port() << "]\n";
 
@@ -290,10 +290,10 @@ int main()
         server tcp(AF_INET, INADDR_ANY, PORT, 10);
 
         std::cout << std::format("Server up: [{}:{}]\n\n", tcp.get_ip(), tcp.get_port());
-        std::thread(handler).detach();
+        std::thread(broadcast_thread).detach();
 
         for (;;) {
-            std::thread(thread_func, tcp.accept_client()).detach();
+            std::thread(client_thread, tcp.accept_client()).detach();
         }
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

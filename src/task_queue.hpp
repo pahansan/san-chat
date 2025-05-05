@@ -37,4 +37,4 @@ void send_status_to_one(const std::string& login);
 void client_send_message_list(const std::string& sender, const std::string& receiver);
 std::string get_login_by_fd(const int& fd);
 void process_event(const event& cur);
-void handler();
+void broadcast_thread();

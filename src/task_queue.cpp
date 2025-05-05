@@ -123,7 +123,7 @@ void process_event(const event& cur)
     }
 }
 
-void handler()
+void broadcast_thread()
 {
     for (;;) {
         std::unique_lock lock(event_mutex);

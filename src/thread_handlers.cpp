@@ -66,10 +66,6 @@ void receiving(int client_socket)
             set_input_buffer("File not found");
             update_user_input();
             set_input_buffer("");
-            // std::lock_guard lk(input_mutex);
-            // std::cout << "File not found";
-            // std::cout << input_buffer;
-            // std::cout.flush();
             continue;
         }
 

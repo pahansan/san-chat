@@ -14,3 +14,4 @@ void print_files(const std::string& messages);
 void set_input_buffer(const std::string& str);
 void set_input_buffer(const char& c);
 std::string get_input_buffer();
+std::string intrance(const int& fd, const std::string& app_name, const std::string& type, const std::string& login, const std::string& password);

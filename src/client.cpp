@@ -31,48 +31,12 @@ int main(int argc, char* argv[])
 
     signal(SIGPIPE, SIG_IGN);
 
-    std::string received;
+    std::string received = intrance(client_socket, argv[0], argv[2], argv[3], argv[4]);
+    if (received == "") {
+        return 1;
+    }
 
-    std::string sending;
-    std::string getting;
-
-    std::string type(argv[2]);
     std::string login(argv[3]);
-    std::string password(argv[4]);
-
-    if (type == "reg")
-        sending += registration;
-    if (type == "log")
-        sending += logining;
-
-    sending += login + '\036' + password;
-    std::cout << login << ":" << password << '\n';
-    my_send(client_socket, sending);
-    my_recv(client_socket, received);
-
-    switch (sending[0]) {
-    case registration:
-        if (received == login_exists) {
-            std::cout << "Пользователь с таким логином уже существует\n";
-            close(client_socket);
-            return 0;
-        }
-    case logining:
-        if (received == login_dont_exists) {
-            std::cout << "Пользователя с таким логином не существует\n";
-            close(client_socket);
-            return 0;
-        } else if (received == incorrect_password) {
-            std::cout << "Направильный пароль\n";
-            close(client_socket);
-            return 0;
-        }
-    }
-    if (received == db_fault) {
-        std::cout << "Ошибка в работе базы данных\n";
-        close(client_socket);
-        return 0;
-    }
 
     print_users(received.substr(1));
     update_user_input();

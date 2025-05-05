@@ -1,12 +1,16 @@
 
 
 #include "interface.hpp"
+#include "message_types.hpp"
 #include "parsing.hpp"
+#include "sendrecv.hpp"
 #include "terminal.hpp"
 #include "utf8_string.hpp"
 
-#include "mutex"
+#include <format>
+#include <mutex>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 std::mutex input_mutex;
@@ -111,4 +115,44 @@ std::string get_input_buffer()
 {
     std::lock_guard lock(input_mutex);
     return input_buffer;
+}
+
+std::string intrance(const int& fd, const std::string& app_name, const std::string& type, const std::string& login, const std::string& password)
+{
+    std::string sending;
+    std::string received;
+
+    if (type == "reg") {
+        sending += registration;
+    } else if (type == "log") {
+        sending += logining;
+    } else {
+        std::cout << std::format("Usage: {} hostname <reg/log> <login> <password>\n", app_name);
+        return "";
+    }
+
+    sending += login + '\036' + password;
+
+    my_send(fd, sending);
+    my_recv(fd, received);
+
+    if (received == login_exists) {
+        std::cout << "Пользователь с таким логином уже существует\n";
+        close(fd);
+        return "";
+    } else if (received == login_dont_exists) {
+        std::cout << "Пользователя с таким логином не существует\n";
+        close(fd);
+        return "";
+    } else if (received == incorrect_password) {
+        std::cout << "Направильный пароль\n";
+        close(fd);
+        return "";
+    } else if (received == db_fault) {
+        std::cout << "Ошибка в работе базы данных\n";
+        close(fd);
+        return "";
+    }
+
+    return received;
 }

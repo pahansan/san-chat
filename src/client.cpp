@@ -54,12 +54,6 @@ int main(int argc, char* argv[])
             break;
 
         if (c == '\n') {
-            if (get_input_buffer() == "Cannot open file") {
-                set_input_buffer("");
-            } else if (get_input_buffer() == "Wrong username") {
-                set_input_buffer("");
-            }
-
             std::string message;
             {
                 message = get_input_buffer();
@@ -98,6 +92,9 @@ int main(int argc, char* argv[])
                         filepath = skip_spaces(message.substr(5));
                         if (!std::filesystem::exists(filepath)) {
                             set_input_buffer("Cannot open file");
+                            update_user_input();
+                            set_input_buffer("");
+                            continue;
                         } else {
                             sending = file;
                             sending += get_file_name(filepath);
@@ -112,6 +109,9 @@ int main(int argc, char* argv[])
                             is_command = false;
                         } else {
                             set_input_buffer("Wrong username");
+                            update_user_input();
+                            set_input_buffer("");
+                            continue;
                         }
                     } else if (message == "/exit") {
                         end = true;

@@ -66,6 +66,9 @@ int main(int argc, char* argv[])
                     set_current_state(users_list);
                     set_current_user("");
                     sending = get_users;
+                } else if (message == "/exit") {
+                    end = true;
+                    break;
                 } else if (cur_state == users_list) {
                     if (message.substr(0, 7) == "/select") {
                         sending = get_messages;
@@ -109,9 +112,6 @@ int main(int argc, char* argv[])
                         sending = std::string(1, send_message);
                         sending += message;
                     }
-                } else if (message == "/exit") {
-                    end = true;
-                    break;
                 }
 
                 if (!sending.empty()) {

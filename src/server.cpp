@@ -163,13 +163,13 @@ void thread_func(server::client&& working)
     std::cout << "<[" << working.get_ip() << ':' << working.get_port() << "]\n";
 
     ssize_t bytes_received;
-    std::string received = "";
+    std::string received;
 
     const int socket = working.get_socket();
 
     while (received[0] == '\0') {
         bytes_received = my_recv(working.get_socket(), received);
-        if (bytes_received < 0) {
+        if (bytes_received <= 0) {
             std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
             return;
         }

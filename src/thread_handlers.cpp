@@ -55,7 +55,7 @@ void receiving(int client_socket)
     std::string received;
     while (true) {
         size_t bytes_received = my_recv(client_socket, received);
-        if (bytes_received < 0 && !end) {
+        if (bytes_received <= 0 && !end) {
             std::cerr << "Сервер не отвечает\n";
             end = true;
         }

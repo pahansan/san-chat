@@ -56,14 +56,17 @@ void receiving(int client_socket)
             break;
 
         if (received == file_not_found) {
-            set_input_buffer("File not found");
-            update_user_input();
-            set_input_buffer("");
+            print_notification("File not found");
             continue;
         }
 
         if (received[0] == file) {
-            recv_file(client_socket, get_receiving_file());
+            print_notification("Receiving...");
+            {
+                std::lock_guard lock(chat_mutex);
+                recv_file(client_socket, receiving_file);
+            }
+            update_user_input();
         }
 
         set_global_buffer(received);

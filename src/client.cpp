@@ -48,12 +48,7 @@ int main(int argc, char* argv[])
 
     enableRawMode();
 
-    while (true) {
-        struct winsize w;
-        ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-
-        if (end)
-            break;
+    while (!end) {
         char c;
         if (read(STDIN_FILENO, &c, 1) != 1)
             break;

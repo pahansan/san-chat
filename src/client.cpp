@@ -59,7 +59,6 @@ int main(int argc, char* argv[])
 
             if (!message.empty()) {
                 std::string sending;
-                bool is_command = false;
                 user_state cur_state = get_current_state();
                 std::string cur_user = get_current_user();
 
@@ -67,29 +66,23 @@ int main(int argc, char* argv[])
                     set_current_state(users_list);
                     set_current_user("");
                     sending = get_users;
-                    is_command = true;
                 } else if (message.substr(0, 7) == "/select" && cur_state == users_list) {
                     sending = get_messages;
                     sending += skip_spaces(message.substr(7));
                     set_current_state(dialogue);
                     set_current_user(sending.substr(1));
-                    is_command = true;
                 } else if (message.substr(0, 6) == "/files" && cur_state == dialogue) {
                     sending = get_messages;
                     sending += cur_user;
                     set_current_state(files_list);
-                    is_command = true;
                 } else if (message.substr(0, 9) == "/messages" && cur_state == files_list) {
                     sending = get_messages;
                     sending += cur_user;
                     set_current_state(dialogue);
-                    is_command = true;
                 } else if (message.substr(0, 5) == "/send" && (cur_state == files_list || cur_state == dialogue)) {
                     filepath = skip_spaces(message.substr(5));
                     if (!std::filesystem::exists(filepath)) {
-                        set_input_buffer("Cannot open file");
-                        update_user_input();
-                        set_input_buffer("");
+                        print_notification("Cannot open file");
                         continue;
                     } else {
                         sending = file;
@@ -103,11 +96,8 @@ int main(int argc, char* argv[])
                     if (username == login || username == cur_user) {
                         sending = get_file;
                         sending += to_receive + '\036' + username;
-                        is_command = false;
                     } else {
-                        set_input_buffer("Wrong username");
-                        update_user_input();
-                        set_input_buffer("");
+                        print_notification("Wrong username");
                         continue;
                     }
                 } else if (message == "/exit") {
@@ -115,7 +105,6 @@ int main(int argc, char* argv[])
                     break;
                 } else if (current_state == dialogue) {
                     sending = std::string(1, send_message) + message;
-                    is_command = false;
                 } else if (current_state == users_list) {
                     sending = get_users;
                 }
@@ -123,19 +112,8 @@ int main(int argc, char* argv[])
                 if (!sending.empty()) {
                     my_send(client_socket, sending);
                     if (sending[0] == file) {
-                        set_input_buffer("Sending...");
-                        update_user_input();
+                        print_notification("Sending...");
                         send_file(client_socket, filepath);
-                        set_input_buffer("");
-                        update_user_input();
-                    }
-                    if (is_command) {
-                        std::lock_guard lock(chat_mutex);
-                        if (current_state == users_list) {
-                            my_send(client_socket, sending);
-                        } else if (current_state == dialogue) {
-                            my_send(client_socket, sending);
-                        }
                     }
                 }
             }

@@ -225,3 +225,10 @@ void set_current_user(const std::string& str)
     std::lock_guard lock(chat_mutex);
     current_user = str;
 }
+
+void print_notification(const std::string& str)
+{
+    set_input_buffer(str);
+    update_user_input();
+    set_input_buffer("");
+}

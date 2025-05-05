@@ -33,3 +33,4 @@ std::string get_receiving_file();
 void set_receiving_file(const std::string& str);
 std::string get_current_user();
 void set_current_user(const std::string& str);
+void print_notification(const std::string& str);

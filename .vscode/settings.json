@@ -73,6 +73,7 @@
         "io_context": "cpp",
         "socket": "cpp",
         "timer": "cpp",
-        "future": "cpp"
+        "future": "cpp",
+        "code": "cpp"
     }
 }

@@ -111,11 +111,13 @@ void process_event(const event& cur)
             string_list += message.text + '\036';
             string_list += std::to_string(message.is_file) + '\036';
         }
-        string_list[string_list.size() - 1] = '\0';
+
         if (sender_fd != -1)
             my_send(sender_fd, string_list);
+
         if (receiver_fd != -1)
             my_send(receiver_fd, string_list);
+
         break;
     }
     default:

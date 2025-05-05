@@ -15,8 +15,6 @@
 #include <thread>
 #include <vector>
 
-std::mutex server_mutex;
-
 class server {
 public:
     class client {
@@ -167,61 +165,56 @@ void thread_func(server::client&& working)
 
     const int socket = working.get_socket();
 
-    while (received[0] == '\0') {
-        bytes_received = my_recv(working.get_socket(), received);
-        if (bytes_received <= 0) {
-            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
-            return;
-        }
-        switch (received[0]) {
-        case registration: {
-            std::vector<std::string> login_data = split_string(received.substr(1));
-            std::string login = login_data[0];
-            std::string password = login_data[1];
+    bytes_received = my_recv(working.get_socket(), received);
+    if (bytes_received <= 0) {
+        std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
+        return;
+    }
+    switch (received[0]) {
+    case registration: {
+        std::vector<std::string> login_data = split_string(received.substr(1));
+        std::string login = login_data[0];
+        std::string password = login_data[1];
 
-            if (user_exists(login)) {
-                my_send(socket, login_exists);
-                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
-                return;
-            }
-            if (add_user(login, password)) {
-                my_send(socket, db_fault);
-                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
-                return;
-            }
-            {
-                std::lock_guard lock(server_mutex);
-                fd_list.push_back(working.get_socket());
-                login_list.push_back(login);
-            }
-            break;
-        }
-        case logining: {
-            std::vector<std::string> login_data = split_string(received.substr(1));
-            std::string login = login_data[0];
-            std::string password = login_data[1];
-            std::cout << login << ":" << password << '\n';
-            if (!user_exists(login)) {
-                my_send(socket, login_dont_exists);
-                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
-                return;
-            }
-            if (!verify_user(login, password)) {
-                my_send(socket, incorrect_password);
-                std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
-                return;
-            }
-            {
-                std::lock_guard lock(server_mutex);
-                fd_list.push_back(socket);
-                login_list.push_back(login);
-            }
-            break;
-        }
-        default:
+        if (user_exists(login)) {
+            my_send(socket, login_exists);
+            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
+            return;
+        } else if (add_user(login, password)) {
+            my_send(socket, db_fault);
+            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
+            return;
+        } else if (connect_user(login, socket)) {
+            my_send(socket, user_already_connected);
             std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
             return;
         }
+        break;
+    }
+    case logining: {
+        std::vector<std::string> login_data = split_string(received.substr(1));
+        std::string login = login_data[0];
+        std::string password = login_data[1];
+        std::cout << login << ":" << password << '\n';
+        if (!user_exists(login)) {
+            my_send(socket, login_dont_exists);
+            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
+            return;
+        }
+        if (!verify_user(login, password)) {
+            my_send(socket, incorrect_password);
+            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
+            return;
+        } else if (connect_user(login, socket)) {
+            my_send(socket, user_already_connected);
+            std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
+            return;
+        }
+        break;
+    }
+    default:
+        std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
+        return;
     }
 
     std::string login = get_login_by_fd(socket);
@@ -277,7 +270,7 @@ void thread_func(server::client&& working)
 
     std::cout << ">[" << working.get_ip() << ':' << working.get_port() << "]\n";
     change_user_status(login, OFFLINE);
-    erase_user(working.get_socket());
+    disconnect_user(login);
     send_status_to_all();
 }
 

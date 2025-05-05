@@ -7,12 +7,13 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "db.hpp"
 
-extern std::vector<int> fd_list;
-extern std::vector<std::string> login_list;
+extern std::unordered_map<std::string, int> connected_users;
+extern std::mutex server_mutex;
 
 extern std::mutex server_mutex;
 extern std::mutex event_mutex;
@@ -29,7 +30,8 @@ typedef struct event {
 
 extern std::queue<event> event_queue;
 
-void erase_user(const int& fd);
+int connect_user(const std::string& login, const int& fd);
+void disconnect_user(const std::string& login);
 void send_status_to_all();
 void send_status_to_one(const std::string& login);
 void client_send_message_list(const std::string& sender, const std::string& receiver);

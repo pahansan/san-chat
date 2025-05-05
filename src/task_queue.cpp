@@ -2,31 +2,33 @@
 #include "message_types.hpp"
 #include "sendrecv.hpp"
 
-std::vector<int> fd_list;
-std::vector<std::string> login_list;
+#include <unordered_map>
+
+std::unordered_map<std::string, int> connected_users;
+std::mutex server_mutex;
 
 std::mutex event_mutex;
 std::condition_variable event_cv;
 
 std::queue<event> event_queue;
 
-void erase_user(const int& fd)
+int connect_user(const std::string& login, const int& fd)
 {
-    const auto fd_it = std::find(fd_list.begin(), fd_list.end(), fd);
-    if (fd_it == fd_list.end())
-        return;
-
-    std::string login = get_login_by_fd(fd);
-
-    const auto login_it = std::find(login_list.begin(), login_list.end(), login);
-    if (login_it == login_list.end())
-        return;
-
-    {
-        std::lock_guard lock(server_mutex);
-        fd_list.erase(fd_it);
-        login_list.erase(login_it);
+    std::lock_guard lock(server_mutex);
+    if (connected_users.find(login) == connected_users.end()) {
+        connected_users[login] = fd;
+        return 0;
+    } else {
+        return 1;
     }
+}
+
+void disconnect_user(const std::string& login)
+{
+    std::lock_guard lock(server_mutex);
+    const auto it = connected_users.find(login);
+    if (it != connected_users.end())
+        connected_users.erase(it);
 }
 
 void send_status_to_all()
@@ -58,20 +60,22 @@ void client_send_message_list(const std::string& sender, const std::string& rece
 
 std::string get_login_by_fd(const int& fd)
 {
-    const auto n = std::find(fd_list.begin(), fd_list.end(), fd);
-    if (n == fd_list.end())
-        return std::string("");
-
-    return std::string(login_list[n - fd_list.begin()]);
+    std::lock_guard lock(server_mutex);
+    const auto it = std::find_if(connected_users.begin(), connected_users.end(), [&fd](auto&& p) { return p.second == fd; });
+    if (it != connected_users.end()) {
+        return it->first;
+    } else {
+        return "";
+    }
 }
 
 int get_fd_by_login(const std::string& login)
 {
-    const auto n = std::find(login_list.begin(), login_list.end(), login);
-    if (n == login_list.end())
+    std::lock_guard lock(server_mutex);
+    if (connected_users.find(login) != connected_users.end())
+        return connected_users[login];
+    else
         return -1;
-
-    return fd_list[n - login_list.begin()];
 }
 
 void process_event(const event& cur)
@@ -85,7 +89,7 @@ void process_event(const event& cur)
             user_data += name + '\036' + std::to_string(status) + '\036';
         }
         if (cur.subtype == to_all) {
-            for (const auto& fd : fd_list) {
+            for (const auto& [login, fd] : connected_users) {
                 my_send(fd, user_data);
             }
         } else {

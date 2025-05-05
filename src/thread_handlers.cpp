@@ -8,12 +8,7 @@
 #include <mutex>
 #include <string>
 
-user_state current_state = users_list;
-
-std::mutex chat_mutex;
 std::condition_variable cv_chat;
-std::string global_buffer;
-std::string receiving_file = "";
 
 bool end = false;
 
@@ -26,23 +21,21 @@ void drawing()
         if (end)
             break;
 
-        if (global_buffer[0] == messages) {
+        if (get_global_buffer_substr(0)[0] == messages) {
             {
-                std::lock_guard lock(chat_mutex);
-                if (current_state == dialogue && is_current_user(&global_buffer[1])) {
-                    print_messages(&global_buffer[1]);
+                if (get_current_state() == dialogue && is_current_user(get_global_buffer_substr(1))) {
+                    print_messages(get_global_buffer_substr(1));
                     update_user_input();
                 }
-                if (current_state == files_list && is_current_user(&global_buffer[1])) {
-                    print_files(&global_buffer[1]);
+                if (get_current_state() == files_list && is_current_user(get_global_buffer_substr(1))) {
+                    print_files(get_global_buffer_substr(1));
                     update_user_input();
                 }
             }
-        } else if (global_buffer[0] == users) {
+        } else if (get_global_buffer_substr(0)[0] == users) {
             {
-                std::lock_guard lock(chat_mutex);
-                if (current_state == users_list) {
-                    print_users(&global_buffer[1]);
+                if (get_current_state() == users_list) {
+                    print_users(get_global_buffer_substr(1));
                     update_user_input();
                 }
             }
@@ -70,13 +63,11 @@ void receiving(int client_socket)
         }
 
         if (received[0] == file) {
-            recv_file(client_socket, receiving_file);
+            recv_file(client_socket, get_receiving_file());
         }
 
-        {
-            std::lock_guard lock(chat_mutex);
-            global_buffer = received;
-        }
+        set_global_buffer(received);
+
         cv_chat.notify_one();
     }
 }

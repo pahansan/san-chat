@@ -1,12 +1,11 @@
 #include "parsing.hpp"
 #include "db.hpp"
+#include "interface.hpp"
 #include "utf8_string.hpp"
 
 #include <sstream>
 #include <string>
 #include <vector>
-
-std::string current_user = "";
 
 std::vector<std::string> get_words_n_spaces(const std::string& text)
 {
@@ -187,9 +186,10 @@ bool is_current_user(const std::string& str)
     std::stringstream ss(str);
     std::string first;
     std::string second;
+    std::string cur = get_current_user();
 
     getline(ss, first, '\036');
     getline(ss, second, '\036');
 
-    return first == current_user || second == current_user;
+    return first == cur || second == cur;
 }

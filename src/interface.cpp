@@ -13,16 +13,25 @@
 #include <unistd.h>
 #include <vector>
 
+std::string current_user = "";
+
+user_state current_state = users_list;
+std::mutex chat_mutex;
+
 std::mutex input_mutex;
 std::string input_buffer;
+
+std::string global_buffer;
+std::string receiving_file = "";
 
 size_t user_input_height = 1;
 
 void update_user_input()
 {
     const auto [width, height] = get_terminal_size();
-
     std::vector<std::string> fitted = fit_text(get_input_buffer(), width - 1);
+
+    std::lock_guard lock(chat_mutex);
 
     move_cursor(height, 0);
     std::cout << std::string(width, ' ');
@@ -47,10 +56,12 @@ void update_user_input()
 
 void print_users(const std::string& users_string)
 {
-    system("clear");
-
     const auto [width, height] = get_terminal_size();
     const users_map users = parse_users(users_string);
+
+    std::lock_guard lock(chat_mutex);
+
+    system("clear");
 
     std::cout << "Список пользователей\n";
     size_t lines_printed = 1;
@@ -71,8 +82,11 @@ void print_users(const std::string& users_string)
 
 void print_messages(const std::string& messages)
 {
-    system("clear");
     const auto [width, height] = get_terminal_size();
+
+    std::lock_guard lock(chat_mutex);
+
+    system("clear");
 
     std::vector<std::string> parsed = parse_messages(messages, width);
     size_t start = parsed.size() >= (height - 3) ? parsed.size() - (height - 3) : 0;
@@ -86,8 +100,11 @@ void print_messages(const std::string& messages)
 
 void print_files(const std::string& messages)
 {
-    system("clear");
     const auto [width, height] = get_terminal_size();
+
+    std::lock_guard lock(chat_mutex);
+
+    system("clear");
 
     std::vector<std::string> parsed = parse_files(messages, width);
     size_t start = parsed.size() >= (height - 3) ? parsed.size() - (height - 3) : 0;
@@ -159,4 +176,52 @@ std::string intrance(const int& fd, const std::string& app_name, const std::stri
     }
 
     return received;
+}
+
+user_state get_current_state()
+{
+    std::lock_guard lock(chat_mutex);
+    return current_state;
+}
+
+void set_current_state(const user_state& state)
+{
+    std::lock_guard lock(chat_mutex);
+    current_state = state;
+}
+
+std::string get_global_buffer_substr(const size_t& start)
+{
+    std::lock_guard lock(chat_mutex);
+    return global_buffer.substr(start);
+}
+
+void set_global_buffer(const std::string& str)
+{
+    std::lock_guard lock(chat_mutex);
+    global_buffer = str;
+}
+
+std::string get_receiving_file()
+{
+    std::lock_guard lock(chat_mutex);
+    return receiving_file;
+}
+
+void set_receiving_file(const std::string& str)
+{
+    std::lock_guard lock(chat_mutex);
+    receiving_file = str;
+}
+
+std::string get_current_user()
+{
+    std::lock_guard lock(chat_mutex);
+    return current_user;
+}
+
+void set_current_user(const std::string& str)
+{
+    std::lock_guard lock(chat_mutex);
+    current_user = str;
 }

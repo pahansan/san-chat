@@ -152,6 +152,10 @@ std::string intrance(const int& fd, const std::string& app_name, const std::stri
         std::cout << "Ошибка в работе базы данных\n";
         close(fd);
         return "";
+    } else if (received[0] != users) {
+        std::cout << "Некорректный ответ от сервера\n";
+        close(fd);
+        return "";
     }
 
     return received;
